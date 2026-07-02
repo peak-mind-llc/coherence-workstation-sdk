@@ -1,0 +1,54 @@
+import type { Provenance } from './provenance';
+
+/**
+ * Per-condition time-frequency views for the ERP Dynamics phase:
+ * ERSP power (Morlet, baseline-corrected logratio), inter-trial coherence
+ * (ITC), and sorted single-trial ERP-image data. Mirrors the
+ * `erp.tfr.per_condition` bus artifact and the ops-aware `op-tfr` endpoint.
+ *
+ * Consumed by the `erp-tf-suite` pane. Hand-written to match its sibling
+ * `ErpEvokedPerCondition` (no JSON schema, like the other SPEC-020 ERP types).
+ */
+export interface ErpTfrPerCondition {
+  provenance: Provenance;
+  data: {
+    paradigm_id: string;
+    /** Condition names present in `per_condition`. */
+    conditions: string[];
+    ch_names: string[];
+    /** Frequency axis in Hz (log-spaced Morlet bins that fit the epoch). */
+    freqs_hz: number[];
+    /** Time axis in seconds (epoch-latency, post-stim positive). */
+    times_s: number[];
+    sfreq_hz: number;
+    tmin_s: number;
+    tmax_s: number;
+    per_condition: {
+      [condition: string]: {
+        /** ERSP power [n_ch][n_freqs][n_times], logratio dB vs. pre-stim. */
+        power: number[][][];
+        /** Inter-trial coherence [n_ch][n_freqs][n_times] in [0,1], or null. */
+        itc: number[][][] | null;
+        /** Sorted single-trial ERP-image data (per-channel sorted_/erp_ keys). */
+        erpimage: ErpImageData;
+      };
+    };
+    [k: string]: unknown;
+  };
+  [k: string]: unknown;
+}
+
+/**
+ * Sorted single-trial ERP-image payload from `_serialize_erpimage`. Besides
+ * the fixed keys below it carries a `sorted_<ch>` (binned trials × time) and
+ * an `erp_<ch>` (mean waveform) array for every channel in `channels`.
+ */
+export interface ErpImageData {
+  /** Time axis in milliseconds (downsampled). */
+  times: number[];
+  n_trials: number;
+  /** 97th-percentile |µV| color scale. */
+  vmax: number;
+  channels: string[];
+  [k: string]: unknown;
+}

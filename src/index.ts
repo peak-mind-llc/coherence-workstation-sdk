@@ -48,6 +48,8 @@ export type { ErpEvokedPerCondition } from './types/erp_evoked_per_condition';
 // this schema (the per-condition results are an additionalProperties map, so the
 // nested shapes are inlined rather than named). Re-export only what exists.
 export type { ErpArcparamPerCondition } from './types/erp_arcparam_per_condition';
+// ERP Dynamics phase — time-frequency views (ERSP / ITC / ERP-image).
+export type { ErpTfrPerCondition, ErpImageData } from './types/erp_tfr_per_condition';
 // SPEC-021 Wave 3 — bus artifact schemas for the bus-native normative plugin
 // (plugins/ins/normative). Replaces the legacy plugins/normative_comparison/
 // HTTP endpoints that workstation reads.
