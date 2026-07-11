@@ -673,6 +673,25 @@ export default function UPlotMiniSpectrum({
     const styles = getComputedStyle(host);
     const cssVar = (name: string, fallback: string) =>
       styles.getPropertyValue(name).trim() || fallback;
+    /* Marker colors arrive as CSS custom-property references — the clinical
+     * label ramp (`var(--foreground-label-rigid)`), so the popover chip and
+     * this canvas dot read ONE token and cannot drift, and the marker design's
+     * own `strokeColor: 'var(--surface-base)'`. Canvas can't parse `var(…)`:
+     * assigning it to fillStyle/strokeStyle is silently IGNORED, leaving the
+     * previous color in place. Resolve here, against the host (not :root,
+     * which returns light values inside a dark subtree). Cached — a busy grid
+     * paints hundreds of markers per frame off a handful of distinct tokens. */
+    const colorCache = new Map<string, string>();
+    const resolveColor = (value: string): string => {
+      const cached = colorCache.get(value);
+      if (cached !== undefined) return cached;
+      const match = /^var\(\s*(--[\w-]+)\s*(?:,([^)]*))?\)$/.exec(value.trim());
+      const resolved = match
+        ? styles.getPropertyValue(match[1]).trim() || (match[2] ?? '').trim() || value
+        : value;
+      colorCache.set(value, resolved);
+      return resolved;
+    };
     /* Theme-aware data-canvas colors — dark-on-near-black in Dark mode,
      * dark-on-white in Light mode. Read from the host so the workstation
      * theme (set on a subtree, not :root) resolves correctly. */
@@ -991,14 +1010,14 @@ export default function UPlotMiniSpectrum({
                 // dot itself larger.
                 if (m.haloRadius && m.haloRadius > m.radius) {
                   c.globalAlpha = baseAlpha * 0.25;
-                  c.fillStyle = m.haloColor ?? m.color;
+                  c.fillStyle = resolveColor(m.haloColor ?? m.color);
                   c.beginPath();
                   c.arc(pxCanvas, pyCanvas, m.haloRadius, 0, Math.PI * 2);
                   c.fill();
                 }
                 // Solid fill — dot (peaks) or downward triangle (valleys).
                 c.globalAlpha = baseAlpha;
-                c.fillStyle = m.color;
+                c.fillStyle = resolveColor(m.color);
                 c.beginPath();
                 if (m.shape === 'down-triangle') {
                   const r = m.radius + 0.5;
@@ -1013,7 +1032,7 @@ export default function UPlotMiniSpectrum({
                 // Optional stroke ring for contrast / annotation tint.
                 if (m.strokeColor && (m.strokeWidth ?? 0) > 0) {
                   c.lineWidth = m.strokeWidth!;
-                  c.strokeStyle = m.strokeColor;
+                  c.strokeStyle = resolveColor(m.strokeColor);
                   c.stroke();
                 }
                 const pxCss = u.valToPos(m.cf, 'x', false);

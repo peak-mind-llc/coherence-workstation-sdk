@@ -229,9 +229,10 @@ export type {
 export { CompareSpectrumChart } from './spectrum/CompareSpectrumChart';
 export type { CompareSpectrumChartProps } from './spectrum/CompareSpectrumChart';
 
-// AnnotationPopoverShell — generic popover chrome (positioning/dismissal),
-// no clinical content. Stays public; the clinical popovers import it back.
-export { default as AnnotationPopoverShell } from './annotations/AnnotationPopoverShell';
+// AnnotationPopoverShell moved to @coherence/clinical-sdk. It was only ever
+// consumed by the clinical annotation popovers (which live there), and it now
+// builds on the design-system kit `Popover` — which this package, being
+// mirrored to a public repo, may not import (CONVENTIONS §6).
 
 export type { PhaseToolbarProps } from './registry';
 
