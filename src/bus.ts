@@ -83,16 +83,27 @@ export function setBusFetchGate(
  *    resting condition's norms land only after the FIRST condition's entire
  *    sweep — the EC normative head-map blank), and nothing invalidate()s on
  *    warm COMPLETION. So a pane that mounted before its artifact landed would
- *    stay blank until a manual reload. Poll the 404 with backoff capped at 5s
+ *    stay blank until a manual reload. Poll the 404 with backoff capped at 20s
  *    for up to ~8 min (covers a cold two-condition warm), then accept null as
  *    genuinely absent (e.g. normative skipped for missing demographics) so it
- *    doesn't poll forever. The pane stays in its empty state while polling. */
+ *    doesn't poll forever. The pane stays in its empty state while polling.
+ *
+ *    The cap is 20s (not 5s) and the attempt budget 30 (not 100) deliberately:
+ *    once a condition is signed off the fetch gate lifts for EVERY analysis
+ *    artifact at once, and a warmed session still has many artifacts that are
+ *    genuinely absent for THIS recording (hrv without ECG, meditation without a
+ *    paradigm) or absent under the requested scope (the unscoped fallback leg
+ *    of a scoped read). At a 5s cap those dozens of never-landing polls ran at
+ *    ~1 req/5s each for 8 min — a sustained storm that pegged the CPU and
+ *    flooded the backend with 404s. 20s/30 keeps the SAME ~8 min recovery
+ *    window (so a late-landing artifact is still caught without a reload) while
+ *    cutting steady-state request volume ~4×. */
 const BUS_FETCH_MAX_ATTEMPTS = 8;
 const BUS_FETCH_BASE_DELAY_MS = 400;
 const BUS_FETCH_MAX_DELAY_MS = 8000;
-/** 404 / not-yet-emitted poll: backoff capped at 5s, ~100 attempts ≈ 8 min. */
-const BUS_FETCH_ABSENT_MAX_ATTEMPTS = 100;
-const BUS_FETCH_ABSENT_MAX_DELAY_MS = 5000;
+/** 404 / not-yet-emitted poll: backoff capped at 20s, ~30 attempts ≈ 8 min. */
+const BUS_FETCH_ABSENT_MAX_ATTEMPTS = 30;
+const BUS_FETCH_ABSENT_MAX_DELAY_MS = 20000;
 
 export function useBusArtifact<T = unknown>(
   artifactType: string,
