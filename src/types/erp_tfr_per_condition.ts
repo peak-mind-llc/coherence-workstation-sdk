@@ -16,7 +16,10 @@ export interface ErpTfrPerCondition {
     /** Condition names present in `per_condition`. */
     conditions: string[];
     ch_names: string[];
-    /** Frequency axis in Hz (log-spaced Morlet bins that fit the epoch). */
+    /** Frequency axis in Hz (log-spaced Morlet bins). The full requested
+     *  band is present: epochs are cut wider than the display window (by a
+     *  wavelet half-width) and the result cropped back, so long low-frequency
+     *  wavelets fit and no bins are trimmed. */
     freqs_hz: number[];
     /** Time axis in seconds (epoch-latency, post-stim positive). */
     times_s: number[];
@@ -25,7 +28,9 @@ export interface ErpTfrPerCondition {
     tmax_s: number;
     per_condition: {
       [condition: string]: {
-        /** ERSP power [n_ch][n_freqs][n_times], logratio dB vs. pre-stim. */
+        /** ERSP power [n_ch][n_freqs][n_times] in dB — 10*log10 of the ratio
+         *  to the pre-stimulus baseline. Already scaled by the backend;
+         *  consumers must not re-scale. */
         power: number[][][];
         /** Inter-trial coherence [n_ch][n_freqs][n_times] in [0,1], or null. */
         itc: number[][][] | null;

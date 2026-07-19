@@ -207,6 +207,8 @@ export {
   sciColormap,
   hotColormap,
   normalColorToRGB,
+  bwrColormap,
+  resolveDivergingColormap,
 } from './colormap';
 export type { ColormapName, ColormapFn } from './colormap';
 

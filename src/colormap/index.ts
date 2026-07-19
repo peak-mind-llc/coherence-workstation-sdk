@@ -3,8 +3,8 @@
  *
  * Provides three colormaps selectable via the host's visualization settings
  * (persisted to localStorage key `cw-colormap`):
- *   - perceptual: Viridis (perceptually uniform, default)
- *   - classic:    Jet     (EEGLAB style, legacy)
+ *   - classic:    Jet     (EEGLAB style, default)
+ *   - perceptual: Viridis (perceptually uniform)
  *   - colorblind: Cividis (colorblind-safe)
  *
  * Plus standalone diverging maps (sci, zScore, qeegClassic, hot) used by
@@ -242,6 +242,24 @@ export function qeegClassicColormap(
 }
 
 /* ------------------------------------------------------------------ */
+/*  BWR diverging colormap (blue → white → red)                        */
+/*  Copied verbatim from                                                */
+/*  desktop/src/lib/workstation/panes/head-map-suite/cellValues.ts —    */
+/*  used for ratio / phenotype / asymmetry head-map cells, and shared   */
+/*  with the ERSP diverging colormap resolver below.                    */
+/* ------------------------------------------------------------------ */
+
+export const bwrColormap: ColormapFn = (t) => {
+  const x = Math.max(0, Math.min(1, t));
+  if (x < 0.5) {
+    const k = x * 2;
+    return [Math.round(60 + (255 - 60) * k), Math.round(80 + (255 - 80) * k), 255];
+  }
+  const k = (x - 0.5) * 2;
+  return [255, Math.round(255 * (1 - k) + 60 * k), Math.round(255 * (1 - k) + 60 * k)];
+};
+
+/* ------------------------------------------------------------------ */
 /*  Hot colormap — dark red → red → orange → yellow                    */
 /* ------------------------------------------------------------------ */
 
@@ -271,20 +289,30 @@ const COLORMAPS: Record<ColormapName, ColormapFn> = {
 
 /**
  * Read the host's colormap preference from localStorage.
- * Variant-aware default: Coherence → perceptual (viridis); Neurofield →
- * colorblind (cividis), per clinical-pro convention. The host writes the
- * `data-variant` attribute on document.documentElement.
+ * Default: classic (jet), matching EEGLAB convention, per clinical-pro
+ * decision — applies universally across hosts (Coherence, Neurofield).
  */
 export function getColormapPreference(): ColormapName {
   const saved = typeof localStorage !== 'undefined' ? localStorage.getItem('cw-colormap') : null;
   if (saved === 'perceptual' || saved === 'classic' || saved === 'colorblind') return saved;
-  const variant = (typeof document !== 'undefined' && document.documentElement.getAttribute('data-variant')) || '';
-  return variant === 'neurofield' ? 'colorblind' : 'perceptual';
+  return 'classic';
 }
 
 /** Get the colormap function for the current preference (or a specific name) */
 export function getColormap(name?: ColormapName): ColormapFn {
   return COLORMAPS[name ?? getColormapPreference()];
+}
+
+/**
+ * Shared diverging-colormap resolver for symmetric ±scale visualizations
+ * (ERSP time-frequency maps, head-map ratio/asymmetry/phenotype cells).
+ * `'classic'` maps to jet — on a symmetric ±scale that puts green at 0,
+ * matching the EEGLAB look. `'perceptual'` and `'colorblind'` both map to
+ * the blue-white-red diverging map, since viridis/cividis are sequential
+ * (not diverging) and would misrepresent a zero-crossing.
+ */
+export function resolveDivergingColormap(pref: ColormapName): ColormapFn {
+  return pref === 'classic' ? getColormap('classic') : bwrColormap;
 }
 
 export default COLORMAPS;
