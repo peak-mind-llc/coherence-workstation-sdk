@@ -256,6 +256,7 @@ export class HttpBusClient implements BusClient {
   private readonly baseUrl: string;
   private readonly sessionId: string;
   private readonly cache = new Map<string, BusArtifact>();
+  private readonly inflight = new Map<string, Promise<BusArtifact | null>>();
   private readonly listeners = new Set<() => void>();
 
   constructor(config: HttpBusClientConfig) {
@@ -264,6 +265,23 @@ export class HttpBusClient implements BusClient {
   }
 
   async readArtifactAsync<T = unknown>(
+    artifactType: string,
+  ): Promise<BusArtifact<T> | null> {
+    const existing = this.inflight.get(artifactType);
+    if (existing) return existing as Promise<BusArtifact<T> | null>;
+    const p: Promise<BusArtifact<T> | null> = this._fetchArtifact<T>(artifactType).finally(() => {
+      // Delete by identity, not key: an in-flight request that settles after
+      // invalidate() cleared the map (and a fresh request re-populated it)
+      // must not evict the newer entry.
+      if (this.inflight.get(artifactType) === (p as Promise<BusArtifact | null>)) {
+        this.inflight.delete(artifactType);
+      }
+    });
+    this.inflight.set(artifactType, p as Promise<BusArtifact | null>);
+    return p;
+  }
+
+  private async _fetchArtifact<T = unknown>(
     artifactType: string,
   ): Promise<BusArtifact<T> | null> {
     const url = `${this.baseUrl}/api/bus/${this.sessionId}/${artifactType}`;
@@ -306,6 +324,7 @@ export class HttpBusClient implements BusClient {
    * sees the same data.
    */
   invalidate(): void {
+    this.inflight.clear();
     this.cache.clear();
     for (const listener of this.listeners) {
       try {
