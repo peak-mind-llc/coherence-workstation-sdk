@@ -44,9 +44,11 @@ export interface ErpTfrPerCondition {
 }
 
 /**
- * Sorted single-trial ERP-image payload from `_serialize_erpimage`. Besides
- * the fixed keys below it carries a `sorted_<ch>` (binned trials × time) and
- * an `erp_<ch>` (mean waveform) array for every channel in `channels`.
+ * Single-trial ERP-image payload from `_serialize_erpimage`. Besides the
+ * fixed keys below it carries, for every channel in `channels`: a
+ * `trial_<ch>` (binned trials × time in acquisition order — the default,
+ * unsorted view), a `sorted_<ch>` (the same binned to P300-latency order),
+ * and an `erp_<ch>` (mean waveform) array.
  */
 export interface ErpImageData {
   /** Time axis in milliseconds (downsampled). */
