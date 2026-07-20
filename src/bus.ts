@@ -40,6 +40,12 @@ export interface BusClient {
    * Tests using a synchronous mock can omit this.
    */
   subscribe?(listener: () => void): () => void;
+  /**
+   * Optional index fetch. Production clients (HttpBusClient) implement this so
+   * the index-watch coordinator can poll which artifact types currently exist.
+   * Returns the set of artifact-type keys in the bus index.
+   */
+  fetchIndex?(): Promise<Set<string>>;
 }
 
 let _client: BusClient | null = null;
@@ -70,6 +76,40 @@ export function setBusFetchGate(
   _fetchGateListeners.forEach((l) => l());
 }
 
+/* Bus index snapshot (populated by the index-watch coordinator, busIndexWatch.ts).
+ * The hook consults it so it never fetches a name the bus does not have — the
+ * guaranteed-404 legs of scoped reads make no request at all. `_busWarmSettled`
+ * is false while a warm is actively changing the index and true at rest; a 404 is
+ * only "missing" (honest empty) once settled, otherwise it's "loading". Defaults:
+ * no index loaded (fetch as today) and settled (at rest, a 404 is honest). */
+let _busIndex: Set<string> | null = null;
+let _busWarmSettled = true;
+let _busIndexVersion = 0;
+const _busIndexListeners = new Set<() => void>();
+
+/** Coordinator entry point: publish the latest index snapshot + settled flag. */
+export function setBusIndex(snapshot: Set<string> | null, settled: boolean): void {
+  _busIndex = snapshot;
+  _busWarmSettled = settled;
+  _busIndexVersion += 1;
+  _busIndexListeners.forEach((l) => l());
+}
+
+/** True once a real index snapshot has been published (vs the default null). */
+export function busIndexLoaded(): boolean {
+  return _busIndex !== null;
+}
+
+/** True when the loaded index lists this artifact type. */
+export function busIndexHas(type: string): boolean {
+  return _busIndex?.has(type) ?? false;
+}
+
+/** True when no warm is actively expected to change the index. */
+export function isBusWarmSettled(): boolean {
+  return _busWarmSettled;
+}
+
 /* Bus fetch retry policy. Two distinct failure modes, two bounded retry loops
  * (sharing one timer); both reset on invalidate() / remount.
  *
@@ -77,95 +117,92 @@ export function setBusFetchGate(
  *    backend mid-restart). Retry with exponential backoff, ~28s total, then
  *    surface null and let invalidate()/remount try again.
  *
- * 2. NOT-YET-EMITTED — `readArtifactAsync` returns null (HTTP 404). During an
- *    active warm, "absent" usually means "this producer hasn't emitted yet":
- *    producers emit over minutes (norms land near the end, and the SECOND
- *    resting condition's norms land only after the FIRST condition's entire
- *    sweep — the EC normative head-map blank), and nothing invalidate()s on
- *    warm COMPLETION. So a pane that mounted before its artifact landed would
- *    stay blank until a manual reload. Poll the 404 with backoff capped at 20s
- *    for up to ~8 min (covers a cold two-condition warm), then accept null as
- *    genuinely absent (e.g. normative skipped for missing demographics) so it
- *    doesn't poll forever. The pane stays in its empty state while polling.
+ * 2. NOT-YET-EMITTED — `readArtifactAsync` returns null (HTTP 404). Fetch ONCE
+ *    and stop. Re-fetch is driven by the index-watch coordinator: it calls
+ *    invalidate() when a warm lands new artifacts, which re-runs this effect.
+ *    No per-pane blind poll. A 404 with the warm settled is an honest "missing".
  *
- *    The cap is 20s (not 5s) and the attempt budget 30 (not 100) deliberately:
- *    once a condition is signed off the fetch gate lifts for EVERY analysis
- *    artifact at once, and a warmed session still has many artifacts that are
- *    genuinely absent for THIS recording (hrv without ECG, meditation without a
- *    paradigm) or absent under the requested scope (the unscoped fallback leg
- *    of a scoped read). At a 5s cap those dozens of never-landing polls ran at
- *    ~1 req/5s each for 8 min — a sustained storm that pegged the CPU and
- *    flooded the backend with 404s. 20s/30 keeps the SAME ~8 min recovery
- *    window (so a late-landing artifact is still caught without a reload) while
- *    cutting steady-state request volume ~4×. */
+ *    (This supersedes PR #1018's poll-rate mitigation, which tuned the absent
+ *    poll to 30 attempts / 20s cap; the poll is removed entirely here.)
+ */
 const BUS_FETCH_MAX_ATTEMPTS = 8;
 const BUS_FETCH_BASE_DELAY_MS = 400;
 const BUS_FETCH_MAX_DELAY_MS = 8000;
-/** 404 / not-yet-emitted poll: backoff capped at 20s, ~30 attempts ≈ 8 min. */
-const BUS_FETCH_ABSENT_MAX_ATTEMPTS = 30;
-const BUS_FETCH_ABSENT_MAX_DELAY_MS = 20000;
 
-export function useBusArtifact<T = unknown>(
+export type BusArtifactStatus = 'loading' | 'ready' | 'missing';
+
+export interface BusArtifactState<TData = unknown> {
+  artifact: BusArtifact<TData> | null;
+  status: BusArtifactStatus;
+}
+
+export function useBusArtifactState<T = unknown>(
   artifactType: string,
-): BusArtifact<T> | null {
+): BusArtifactState<T> {
   const [artifact, setArtifact] = useState<BusArtifact<T> | null>(() => {
-    // Initial render: try the synchronous cache. This serves
-    // (a) production cache hits after the first async fetch lands and
-    // (b) tests that inject a synchronous mock client.
     return _client?.readArtifact<T>(artifactType) ?? null;
   });
+  // The single fetch resolved to a 404 (or transient retries exhausted). Kept
+  // separate from `artifact` so status can distinguish loading from missing.
+  const [notFound, setNotFound] = useState(false);
 
-  // Bumped when the bus client fires its subscription event (e.g. on
-  // global montage change). Used as an effect dep so the fetch loop
-  // below re-runs and the renderer picks up the new artifact.
   const [epoch, setEpoch] = useState(0);
-
   useEffect(() => {
     if (!_client?.subscribe) return;
     return _client.subscribe(() => setEpoch((e) => e + 1));
   }, []);
 
-  // Re-run the fetch effect when the host changes the fetch gate (e.g.
-  // sign-off lifts it), so a previously-gated artifact starts fetching.
   const [gateVersion, setGateVersion] = useState(_fetchGateVersion);
   useEffect(() => {
     const listener = () => setGateVersion(_fetchGateVersion);
     _fetchGateListeners.add(listener);
-    // Reconcile against any gate change between render and effect-attach.
     listener();
     return () => {
       _fetchGateListeners.delete(listener);
     };
   }, []);
 
+  // Re-render + re-run the fetch effect when the index snapshot / settled flag
+  // changes (the coordinator publishing a warm's progress).
+  const [indexVersion, setIndexVersion] = useState(_busIndexVersion);
+  useEffect(() => {
+    const listener = () => setIndexVersion(_busIndexVersion);
+    _busIndexListeners.add(listener);
+    listener();
+    return () => {
+      _busIndexListeners.delete(listener);
+    };
+  }, []);
+
   useEffect(() => {
     if (!_client) return;
+    setNotFound(false);
 
-    // Sync cache hit: state may have been seeded by useState's initial
-    // value, but if the cache was populated AFTER the initial render
-    // (e.g. via a sibling renderer's prefetch), pick it up here too.
     const cached = _client.readArtifact<T>(artifactType);
     if (cached) {
       setArtifact(cached);
       return;
     }
 
-    // Host-gated: missing AND the host says this artifact won't be available
-    // yet (e.g. analysis before sign-off). Stay null and do NOT fetch/poll —
-    // we re-run when the gate version changes (sign-off lifts the gate). This
-    // is what keeps cold read from polling 404s for unwarmed analysis.
+    // Host-gated (analysis before sign-off): stay null, do not fetch.
     if (_fetchGate?.(artifactType)) {
       setArtifact(null);
       return;
     }
 
-    // Sync cache miss: fall back to async fetch if the client supports it.
+    // Index-consult gate: the index is loaded and does not list this type, so
+    // it is genuinely absent — do NOT fetch (kills the guaranteed-404 legs).
+    if (busIndexLoaded() && !busIndexHas(artifactType)) {
+      setArtifact(null);
+      setNotFound(true);
+      return;
+    }
+
     if (typeof _client.readArtifactAsync !== 'function') return;
 
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let throwAttempt = 0;
-    let absentAttempt = 0;
 
     const backoff = (n: number, maxDelay: number) =>
       Math.min(maxDelay, BUS_FETCH_BASE_DELAY_MS * 2 ** (n - 1));
@@ -176,30 +213,22 @@ export function useBusArtifact<T = unknown>(
         .then((env) => {
           if (cancelled) return;
           if (env) {
-            // Landed — done.
             setArtifact(env);
+            setNotFound(false);
             return;
           }
-          // env === null is a 404: not emitted (yet). Keep the pane in its
-          // empty state and poll a bounded number of times, so a late-landing
-          // artifact appears on its own without a reload. After the cap, treat
-          // it as genuinely absent.
+          // 404 — single fetch, no poll. The coordinator's invalidate() (on a
+          // later index change) re-runs this effect if the artifact lands.
           setArtifact(null);
-          absentAttempt += 1;
-          if (absentAttempt >= BUS_FETCH_ABSENT_MAX_ATTEMPTS) return;
-          timer = setTimeout(
-            run,
-            backoff(absentAttempt, BUS_FETCH_ABSENT_MAX_DELAY_MS),
-          );
+          setNotFound(true);
         })
         .catch(() => {
-          // Transient failure (network error / 5xx). Retry with bounded
-          // exponential backoff so a single dropped fetch doesn't strand the
-          // pane; once exhausted, surface null and let invalidate()/remount retry.
+          // Transient failure (network / 5xx): bounded exponential retry.
           if (cancelled) return;
           throwAttempt += 1;
           if (throwAttempt >= BUS_FETCH_MAX_ATTEMPTS) {
             setArtifact(null);
+            setNotFound(true);
             return;
           }
           timer = setTimeout(run, backoff(throwAttempt, BUS_FETCH_MAX_DELAY_MS));
@@ -211,9 +240,21 @@ export function useBusArtifact<T = unknown>(
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [artifactType, epoch, gateVersion]);
+  }, [artifactType, epoch, gateVersion, indexVersion]);
 
-  return artifact;
+  const status: BusArtifactStatus = artifact
+    ? 'ready'
+    : notFound && isBusWarmSettled()
+      ? 'missing'
+      : 'loading';
+
+  return { artifact, status };
+}
+
+export function useBusArtifact<T = unknown>(
+  artifactType: string,
+): BusArtifact<T> | null {
+  return useBusArtifactState<T>(artifactType).artifact;
 }
 
 /** Production setter. Called by the desktop app at session open. */
@@ -236,6 +277,9 @@ export function resetBusForTests(): void {
   _client = null;
   _fetchGate = null;
   _fetchGateVersion += 1;
+  _busIndex = null;
+  _busWarmSettled = true;
+  _busIndexVersion += 1;
 }
 
 export interface HttpBusClientConfig {
@@ -291,6 +335,15 @@ export class HttpBusClient implements BusClient {
     const envelope = (await resp.json()) as BusArtifact<T>;
     this.cache.set(artifactType, envelope as BusArtifact);
     return envelope;
+  }
+
+  /** Fetch the set of artifact-type keys currently in the bus index. */
+  async fetchIndex(): Promise<Set<string>> {
+    const url = `${this.baseUrl}/api/bus/${this.sessionId}/index`;
+    const resp = await fetch(url, { method: 'GET' });
+    if (!resp.ok) return new Set();
+    const body = (await resp.json()) as { latest?: Record<string, unknown> };
+    return new Set(Object.keys(body.latest ?? {}));
   }
 
   /** Prefetch an artifact into the in-memory cache for synchronous later reads. */

@@ -98,14 +98,27 @@ export type { PaneKeyBinding } from './keys';
 
 export {
   useBusArtifact,
+  useBusArtifactState,
   setBusClient,
   setBusFetchGate,
   getBusClient,
   setBusClientForTests,
   resetBusForTests,
+  setBusIndex,
+  busIndexLoaded,
+  busIndexHas,
+  isBusWarmSettled,
   HttpBusClient,
 } from './bus';
-export type { BusArtifact, BusClient, HttpBusClientConfig } from './bus';
+export type {
+  BusArtifact,
+  BusArtifactState,
+  BusArtifactStatus,
+  BusClient,
+  HttpBusClientConfig,
+} from './bus';
+
+export { armBusIndexWatch, disarmBusIndexWatch } from './busIndexWatch';
 
 export {
   useActiveLayers,

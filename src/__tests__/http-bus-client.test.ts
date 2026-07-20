@@ -63,6 +63,35 @@ describe('HttpBusClient', () => {
     expect(artifact?.data.value).toBe(1);
   });
 
+  it('fetchIndex returns the set of artifact-type keys', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        latest: {
+          'psd.welch.per_channel.resting_ec': 'abc',
+          'normative.report.resting_ec': 'def',
+        },
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const client = new HttpBusClient({ baseUrl: 'http://localhost:9147', sessionId: 's1' });
+    const index = await client.fetchIndex();
+    expect(index).toEqual(
+      new Set(['psd.welch.per_channel.resting_ec', 'normative.report.resting_ec']),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:9147/api/bus/s1/index',
+      expect.any(Object),
+    );
+  });
+
+  it('fetchIndex returns an empty set when the index is missing', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 404 }));
+    const client = new HttpBusClient({ baseUrl: 'http://localhost:9147', sessionId: 's1' });
+    expect(await client.fetchIndex()).toEqual(new Set());
+  });
+
   const _env = (data: unknown) => ({
     provenance: {
       producer: 'test', producer_version: '0.0.0', produced_at: '2026-05-01T00:00:00Z',
