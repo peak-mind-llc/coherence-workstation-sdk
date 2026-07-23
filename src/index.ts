@@ -51,8 +51,8 @@ export type { ErpArcparamPerCondition } from './types/erp_arcparam_per_condition
 // ERP Dynamics phase — time-frequency views (ERSP / ITC / ERP-image).
 export type { ErpTfrPerCondition, ErpImageData } from './types/erp_tfr_per_condition';
 // SPEC-021 Wave 3 — bus artifact schemas for the bus-native normative plugin
-// (plugins/ins/normative). Replaces the legacy plugins/normative_comparison/
-// HTTP endpoints that workstation reads.
+// (an external, separately-shipped add-on). Replaces the legacy
+// plugins/normative_comparison/ HTTP endpoints that workstation reads.
 export type { NormativeReport } from './types/normative_report';
 export type { NormativePsdBands } from './types/normative_psd_bands';
 
@@ -137,6 +137,34 @@ export type {
   PaneAdapterAxis,
   PaneFromRendererOptions,
 } from './pane-adapter';
+
+export {
+  setPaneRuntime,
+  resetPaneRuntimeForTesting,
+  useWorkstationSession,
+  useScopedBusArtifact,
+  usePriorRecording,
+  usePriorBusArtifact,
+  SignOffToAnalyze,
+  useNotSignedOff,
+  useStaleFitPendingReview,
+  useSpectralScalePref,
+  useMontage,
+} from './pane-runtime';
+export type {
+  PaneRuntime,
+  PaneSession,
+  PaneSynchronizer,
+  PaneRuntimeInstance,
+  PaneRuntimeInstanceSeed,
+  PriorRecordingResult,
+  PriorBusArtifactResult,
+} from './pane-runtime';
+
+// Pane-contract types (Task B2b) — promoted from the host's
+// `core/types.ts` / `core/spectralScale.ts` / `contexts/MontageContext.tsx`
+// so plugin render modules type against the SAME definitions the host uses.
+export type { PaneProps, ConnectivityControlBusPayload, SpectralScale, Montage } from './pane-types';
 
 export { Tooltip } from './tooltip';
 export type { TooltipProps, TooltipPlacement } from './tooltip';

@@ -103,4 +103,27 @@ describe('plugin registry', () => {
     expect(renderer.rowSpan).toBe(1);
     expect(renderer.colSpan).toBe(12);
   });
+
+  it('round-trips an optional componentV2 renderer variant through getRegisteredPlugins', () => {
+    const StubV1 = () => null;
+    const StubV2 = () => null;
+    registerPlugin({
+      name: 'fooof',
+      consumes: ['fooof.per_channel'],
+      renderers: [
+        {
+          slot: 'phase7.spectral.aperiodic-topomap',
+          component: StubV1,
+          componentV2: StubV2,
+          kindId: 'spectral',
+        },
+      ],
+      evidenceGrade: 'research',
+      outputRegister: 'descriptive',
+    });
+    const plugins = getRegisteredPlugins();
+    const renderer = plugins[0].renderers[0];
+    expect(renderer.componentV2).toBe(StubV2);
+    expect(renderer.component).toBe(StubV1);
+  });
 });

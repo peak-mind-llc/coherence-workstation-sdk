@@ -92,6 +92,37 @@ describe('paneFromRenderer', () => {
     expect(def.info).toBeUndefined();
   });
 
+  it('threads componentV2 into ComponentV2 on the definition (RUO-13 B2d-3)', () => {
+    function V1() {
+      return <div data-testid="v1">v1-content</div>;
+    }
+    function V2() {
+      return <div data-testid="v2">v2-content</div>;
+    }
+    const def = paneFromRenderer('phase7.spectral.redesign-aware', V1, {
+      componentV2: V2,
+    });
+
+    expect(def.ComponentV2).toBeDefined();
+    const ComponentV2 = def.ComponentV2!;
+    const props: PaneAdapterProps<Record<string, never>> = {
+      paneId: 'p',
+      programInstanceId: 'pr',
+      syncGroup: 'g',
+      state: {},
+      setState: () => undefined,
+      axes: [],
+      visible: true,
+    };
+    render(<ComponentV2 {...props} />);
+    expect(screen.getByTestId('v2').textContent).toBe('v2-content');
+  });
+
+  it('leaves ComponentV2 undefined when componentV2 is not supplied', () => {
+    const def = paneFromRenderer('phase7.spectral.no-v2', () => null);
+    expect(def.ComponentV2).toBeUndefined();
+  });
+
   it('threads supportsLightCapture option onto the definition', () => {
     const def = paneFromRenderer('phase7.spectral.light-capture', () => null, {
       supportsLightCapture: true,

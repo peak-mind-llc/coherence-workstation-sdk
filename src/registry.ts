@@ -19,6 +19,13 @@ export type OutputRegister = 'descriptive' | 'self-comparative' | 'inferential';
 export interface RendererRegistration {
   slot: string;
   component: ComponentType;
+  /**
+   * Optional redesign (V2) variant of this pane. When the host has the
+   * redesign enabled it mounts `componentV2`; otherwise (or when absent) it
+   * mounts `component`. Lets a plugin ship both its legacy and redesigned
+   * pane from one registration instead of the host hardcoding a V1→V2 map.
+   */
+  componentV2?: ComponentType;
   /** Which analytical kind this slot belongs to. Must match a kind id. */
   kindId: string;
   /** Sort weight within the kind. Default 100. */
