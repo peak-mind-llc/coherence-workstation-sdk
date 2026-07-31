@@ -335,17 +335,20 @@ export { FINDING_GEOMETRY_KINDS } from './findings';
 // own bundler. See src/brain3d/CortexCanvas.tsx.
 // ---------------------------------------------------------------------------
 
-export {
-  default as CortexCanvas,
-  mniToScene,
-  MNI_SCALE,
-  EMPTY_REGION_POWER,
-} from './brain3d/CortexCanvas';
+// Values are deliberately NOT re-exported here. A static re-export makes this
+// barrel a hard dependency edge: importing anything from the SDK — PaneInfo, a
+// hook, a type helper — pulls brain3d/CortexCanvas and with it three.js, R3F,
+// drei and niivue into the consumer's entry chunk, whether or not it ever draws
+// in 3D. That cost ~380 kB in the workstation's entry chunk alone.
+//
+// Import these from the module directly:
+//   import CortexCanvas from '@coherence/workstation-sdk/brain3d/CortexCanvas';
+//
+// Types stay on the barrel: they are erased at build time and cost nothing.
 export type {
   CortexCanvasProps,
   Hemisphere,
 } from './brain3d/CortexCanvas';
-export { VoiceAnchorMarker } from './brain3d/VoiceAnchorMarker';
 export type { VoiceAnchorMarkerProps } from './brain3d/VoiceAnchorMarker';
 
 // DK-68 MNI centroid table + nearest-parcel lookup (promoted from desktop
