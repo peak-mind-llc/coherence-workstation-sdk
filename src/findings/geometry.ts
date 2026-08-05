@@ -74,7 +74,17 @@ export type FindingGeometry =
         paneType: string;
         channel?: string;
       }[];
-    };
+    }
+  /**
+   * An image the clinician imported from another application. There is no
+   * pane behind it and nothing to restore, which is why the findings rail
+   * suppresses its jump control.
+   *
+   * Intentionally one-sided: `cw_eeg.proposals._validate_geometry` is NOT
+   * extended with this kind. That validator gates AI-proposed findings, and
+   * the AI cannot propose a picture a human imported.
+   */
+  | { kind: 'imported'; paneType: string };
 
 /** All geometry kinds. The Pydantic discriminator (server) tracks this list. */
 export const FINDING_GEOMETRY_KINDS = [
@@ -85,6 +95,7 @@ export const FINDING_GEOMETRY_KINDS = [
   'channel-set',
   'channel-overlay',
   'multi-fragment',
+  'imported',
 ] as const;
 
 export type FindingGeometryKind = (typeof FINDING_GEOMETRY_KINDS)[number];
