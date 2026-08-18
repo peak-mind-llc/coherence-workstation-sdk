@@ -20,7 +20,7 @@
  */
 import { useEffect, useMemo, useRef } from 'react';
 import uPlot from 'uplot';
-import { DEFAULT_BANDS, type BandRange } from './index';
+import { DEFAULT_BANDS, placeReadoutTopRight, type BandRange } from './index';
 import { readCanvasTokens } from '../canvas-tokens';
 
 const F_MIN_HZ = 1;
@@ -77,6 +77,28 @@ export interface CompareSpectrumChartProps {
   band2Lower?: number[];
   /** Optional normative-mean curve in amplitude (µV/√Hz). */
   normMean?: number[];
+  /**
+   * Synchronized x-crosshair frequency (Hz), broadcast by whichever cell
+   * the mouse is actually over. Null clears. Mirrors UPlotMiniSpectrum so
+   * head-grid and compare-grid crosshairs behave identically.
+   */
+  crosshairFreq?: number | null;
+  /** Emits the frequency under the local cursor; null when the mouse leaves. */
+  onHoverFreq?: (freq: number | null) => void;
+  /**
+   * Show the readout on cells driven by the shared `crosshairFreq`, not just
+   * the cell under the cursor — so one hover reads every channel at once.
+   */
+  readoutOnCrosshair?: boolean;
+}
+
+/** Amplitude readout (µV/√Hz). Mirrors formatPower's precision ladder. */
+function formatAmp(a: number): string {
+  if (!Number.isFinite(a) || a <= 0) return '—';
+  if (a >= 100) return a.toFixed(0);
+  if (a >= 1) return a.toFixed(2);
+  if (a >= 0.01) return a.toFixed(3);
+  return a.toExponential(1);
 }
 
 interface Bundle {
@@ -194,8 +216,25 @@ export function CompareSpectrumChart({
   band2Upper,
   band2Lower,
   normMean,
+  crosshairFreq = null,
+  onHoverFreq,
+  readoutOnCrosshair = false,
 }: CompareSpectrumChartProps) {
   const hostRef = useRef<HTMLDivElement>(null);
+  /* Hover readout. Refs (not state) because the setCursor hook is created
+   * once inside the uPlot options and must see fresh values without
+   * rebuilding the chart on every mouse move. */
+  const tooltipRef = useRef<HTMLDivElement | null>(null);
+  const hoveredRef = useRef(false);
+  const onHoverFreqRef = useRef(onHoverFreq);
+  const crosshairFreqRef = useRef(crosshairFreq);
+  const readoutOnCrosshairRef = useRef(readoutOnCrosshair);
+  const priorLabelRef = useRef(priorLabel);
+  useEffect(() => {
+    onHoverFreqRef.current = onHoverFreq;
+    readoutOnCrosshairRef.current = readoutOnCrosshair;
+    priorLabelRef.current = priorLabel;
+  }, [onHoverFreq, readoutOnCrosshair, priorLabel]);
   const plotRef = useRef<uPlot | null>(null);
 
   const bundle = useMemo(
@@ -257,6 +296,10 @@ export function CompareSpectrumChart({
       ? `600 ${fontBody} ${monoFamily}`
       : `600 ${fontMeta} ${monoFamily}`;
     const sublabelFont = `${fontMeta} ${monoFamily}`;
+    /* Theme-aware readout pill — light surface in Light mode, dark in Dark,
+     * so it never drops a black box onto a light canvas. */
+    const tipBg = cssVar('--surface-overlay', 'rgba(0,0,0,0.85)');
+    const tipBorder = cssVar('--border-default', 'transparent');
 
     host.style.background = surfaceInset;
 
@@ -403,11 +446,80 @@ export function CompareSpectrumChart({
             c.restore();
           },
         ],
+        setCursor: [
+          (u) => {
+            const tip = tooltipRef.current;
+            // Read out on the locally-hovered cell, or — when opted in — on
+            // every cell the shared crosshair drives, so one hover reads the
+            // whole grid at that frequency.
+            const showForCrosshair =
+              readoutOnCrosshairRef.current && crosshairFreqRef.current != null;
+            if (!hoveredRef.current && !showForCrosshair) {
+              if (tip) tip.style.display = 'none';
+              return;
+            }
+            const left = u.cursor.left;
+            if (left == null || left < 0) {
+              if (tip) tip.style.display = 'none';
+              return;
+            }
+            const xVal = u.posToVal(left, 'x');
+            if (xVal == null || !Number.isFinite(xVal)) return;
+            const xs = bundle.xs;
+            if (xs.length === 0) return;
+            let bestIdx = 0;
+            let bestD = Math.abs(xs[0] - xVal);
+            for (let i = 1; i < xs.length; i++) {
+              const d = Math.abs(xs[i] - xVal);
+              if (d < bestD) {
+                bestD = d;
+                bestIdx = i;
+              }
+            }
+            const f = xs[bestIdx];
+            // Only the cell physically under the cursor broadcasts, or the
+            // shared crosshair would feed back into itself.
+            if (hoveredRef.current) onHoverFreqRef.current?.(f);
+            if (!tip) return;
+            const cur = bundle.current[bestIdx];
+            const pri = bundle.prior[bestIdx];
+            // Percent change reads more usefully than a raw amplitude delta
+            // when cells span very different scales.
+            const pct =
+              Number.isFinite(cur) && Number.isFinite(pri) && pri > 0
+                ? ((cur - pri) / pri) * 100
+                : null;
+            const priorTag = priorLabelRef.current ? `${priorLabelRef.current} ` : '';
+            const delta =
+              pct == null ? '' : ` (${pct >= 0 ? '+' : ''}${pct.toFixed(0)}%)`;
+            tip.textContent =
+              `${f.toFixed(1)} Hz · ${priorTag}${formatAmp(pri)} → ` +
+              `${formatAmp(cur)} µV/√Hz${delta}`;
+            tip.style.display = 'block';
+            const pos = placeReadoutTopRight(u.bbox, tip.offsetWidth);
+            tip.style.left = `${pos.left}px`;
+            tip.style.top = `${pos.top}px`;
+          },
+        ],
       },
     };
 
     const u = new uPlot(opts, data as uPlot.AlignedData, host);
     plotRef.current = u;
+
+    /* DOM tooltip rather than canvas text: it survives uPlot redraws and
+     * old positions vanish by moving one element instead of repainting. */
+    const tip = document.createElement('div');
+    tip.style.cssText =
+      'position:absolute;pointer-events:none;display:none;z-index:5;' +
+      'padding:2px 5px;border-radius:3px;white-space:nowrap;' +
+      'font-variant-numeric:tabular-nums;' +
+      `background:${tipBg};border:1px solid ${tipBorder};` +
+      'box-shadow:0 1px 4px rgba(0,0,0,0.18);';
+    tip.style.color = traceColor;
+    tip.style.font = sublabelFont;
+    host.appendChild(tip);
+    tooltipRef.current = tip;
 
     const ro = new ResizeObserver(() => {
       const el = hostRef.current;
@@ -419,6 +531,10 @@ export function CompareSpectrumChart({
     return () => {
       ro.disconnect();
       u.destroy();
+      if (tooltipRef.current && tooltipRef.current.parentNode === host) {
+        host.removeChild(tooltipRef.current);
+      }
+      tooltipRef.current = null;
       plotRef.current = null;
     };
   }, [
@@ -433,6 +549,42 @@ export function CompareSpectrumChart({
     bands,
     priorLabel,
   ]);
+
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    const onEnter = () => {
+      hoveredRef.current = true;
+    };
+    const onLeave = () => {
+      hoveredRef.current = false;
+      onHoverFreqRef.current?.(null);
+      if (tooltipRef.current) tooltipRef.current.style.display = 'none';
+    };
+    host.addEventListener('mouseenter', onEnter);
+    host.addEventListener('mouseleave', onLeave);
+    return () => {
+      host.removeEventListener('mouseenter', onEnter);
+      host.removeEventListener('mouseleave', onLeave);
+    };
+  }, []);
+
+  useEffect(() => {
+    // Refresh the ref BEFORE driving the cursor so setCursor sees this value.
+    crosshairFreqRef.current = crosshairFreq;
+    const u = plotRef.current;
+    if (!u) return;
+    // The hovered cell owns its own cursor; only followers get driven.
+    if (hoveredRef.current) return;
+    if (crosshairFreq == null) {
+      u.setCursor({ left: -10, top: -10 }, false);
+      return;
+    }
+    const left = u.valToPos(crosshairFreq, 'x', false);
+    if (Number.isFinite(left)) {
+      u.setCursor({ left, top: 1 }, false);
+    }
+  }, [crosshairFreq]);
 
   return (
     <div
