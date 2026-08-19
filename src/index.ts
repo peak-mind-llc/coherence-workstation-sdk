@@ -217,12 +217,14 @@ export {
   TopoColorbar,
   TopoValueHover,
   renderColorbarCanvas,
+  centreForTopo,
 } from './topomap';
 export type {
   TopoRenderOptions,
   TopomapProps,
   TopoColorbarProps,
   TopoValueHoverProps,
+  CentredTopoValues,
 } from './topomap';
 
 // HeadMap — reusable head-with-electrodes SVG (electrode picker + montage

@@ -674,3 +674,6 @@ export type { TopoColorbarProps } from './TopoColorbar';
 
 export { TopoValueHover } from './TopoValueHover';
 export type { TopoValueHoverProps } from './TopoValueHover';
+
+export { centreForTopo } from './centreForTopo';
+export type { CentredTopoValues } from './centreForTopo';
