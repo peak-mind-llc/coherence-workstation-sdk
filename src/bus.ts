@@ -43,9 +43,26 @@ export interface BusClient {
   /**
    * Optional index fetch. Production clients (HttpBusClient) implement this so
    * the index-watch coordinator can poll which artifact types currently exist.
-   * Returns the set of artifact-type keys in the bus index.
+   *
+   * Returns a {@link BusIndexSnapshot}. A bare `Set<string>` is also accepted
+   * for clients written against the pre-`warming` contract (fixture servers,
+   * third-party plugin clients); the coordinator normalizes both and treats a
+   * missing `warming` as "unknown", falling back to its stability heuristic.
    */
-  fetchIndex?(): Promise<Set<string>>;
+  fetchIndex?(): Promise<BusIndexSnapshot | Set<string>>;
+}
+
+/**
+ * One poll of the bus index: which artifact types exist, and whether the
+ * backend still has a producer chain running for this session.
+ *
+ * `warming` is the authoritative answer to "should I expect more artifacts?".
+ * `null` means the backend didn't say — an older backend, or a fixture server
+ * that has no warm concept.
+ */
+export interface BusIndexSnapshot {
+  types: Set<string>;
+  warming: boolean | null;
 }
 
 let _client: BusClient | null = null;
@@ -337,13 +354,19 @@ export class HttpBusClient implements BusClient {
     return envelope;
   }
 
-  /** Fetch the set of artifact-type keys currently in the bus index. */
-  async fetchIndex(): Promise<Set<string>> {
+  /** Fetch the artifact-type keys in the bus index, plus the warm-in-flight flag. */
+  async fetchIndex(): Promise<BusIndexSnapshot> {
     const url = `${this.baseUrl}/api/bus/${this.sessionId}/index`;
     const resp = await fetch(url, { method: 'GET' });
-    if (!resp.ok) return new Set();
-    const body = (await resp.json()) as { latest?: Record<string, unknown> };
-    return new Set(Object.keys(body.latest ?? {}));
+    if (!resp.ok) return { types: new Set(), warming: null };
+    const body = (await resp.json()) as {
+      latest?: Record<string, unknown>;
+      warming?: unknown;
+    };
+    return {
+      types: new Set(Object.keys(body.latest ?? {})),
+      warming: typeof body.warming === 'boolean' ? body.warming : null,
+    };
   }
 
   /** Prefetch an artifact into the in-memory cache for synchronous later reads. */

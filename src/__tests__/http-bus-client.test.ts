@@ -77,7 +77,7 @@ describe('HttpBusClient', () => {
     vi.stubGlobal('fetch', fetchMock);
     const client = new HttpBusClient({ baseUrl: 'http://localhost:9147', sessionId: 's1' });
     const index = await client.fetchIndex();
-    expect(index).toEqual(
+    expect(index.types).toEqual(
       new Set(['psd.welch.per_channel.resting_ec', 'normative.report.resting_ec']),
     );
     expect(fetchMock).toHaveBeenCalledWith(
@@ -86,10 +86,31 @@ describe('HttpBusClient', () => {
     );
   });
 
+  it('fetchIndex reports whether a warm is still in flight', async () => {
+    const withWarming = (warming: unknown) =>
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ latest: { 'psd.welch.per_channel': 'abc' }, warming }),
+      });
+    const client = new HttpBusClient({ baseUrl: 'http://localhost:9147', sessionId: 's1' });
+
+    vi.stubGlobal('fetch', withWarming(true));
+    expect((await client.fetchIndex()).warming).toBe(true);
+
+    vi.stubGlobal('fetch', withWarming(false));
+    expect((await client.fetchIndex()).warming).toBe(false);
+
+    // A backend that predates the field says nothing about warm state — the
+    // watcher must fall back to its stability heuristic, not assume "idle".
+    vi.stubGlobal('fetch', withWarming(undefined));
+    expect((await client.fetchIndex()).warming).toBeNull();
+  });
+
   it('fetchIndex returns an empty set when the index is missing', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 404 }));
     const client = new HttpBusClient({ baseUrl: 'http://localhost:9147', sessionId: 's1' });
-    expect(await client.fetchIndex()).toEqual(new Set());
+    expect((await client.fetchIndex()).types).toEqual(new Set());
   });
 
   const _env = (data: unknown) => ({

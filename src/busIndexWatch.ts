@@ -10,28 +10,44 @@
  * traffic drops to zero. See
  * docs/superpowers/plans/2026-07-18-bus-404-poll-storm-elimination.md.
  */
-import { getBusClient, setBusIndex } from './bus';
+import { getBusClient, setBusIndex, type BusIndexSnapshot } from './bus';
 
 const INDEX_POLL_MS = 2000;
-// ~60s of index quiescence at INDEX_POLL_MS. Must comfortably exceed the longest
-// single-producer gap in a warm (source-localize / normative ICA fit / the
-// second-condition sweep, each 10-60s on a background thread) — a shorter window
-// would settle mid-warm and stop polling, stranding a slow late-landing artifact
-// in its 'missing' empty state until a manual reload (WOR-164 final review). The
-// 8-min WATCH_MAX_MS backstop still caps a pathologically long / stuck warm.
+// ~60s of index quiescence at INDEX_POLL_MS. This is the FALLBACK settle rule,
+// used only when the backend doesn't report warm state (`warming: null`) — a
+// fixture server, or a backend predating the flag. When the backend does report,
+// quiescence alone is never enough: the warm must also be finished.
+//
+// Quiescence alone was wrong. SEGA__2026-08-18's normative step left the index
+// unchanged for 112s in the middle of a live warm; the watch declared the warm
+// over at 60s and stopped polling, so hrv.report and everything after it landed
+// unobserved and every consuming pane sat on a false "no data" state until the
+// clinician hit Cmd-R. The producer gaps this window was sized against ("each
+// 10-60s") were simply an underestimate, and no constant is safe against the
+// next slower machine — hence the authoritative signal.
 const SETTLE_STABLE_POLLS = 30;
+// No-PROGRESS backstop, not an absolute deadline: the clock resets whenever the
+// index changes or the backend reports an active warm. A warm that legitimately
+// runs 20 minutes stays watched; a genuinely stuck/dead backend still settles
+// and stops polling after 8 idle minutes.
 const WATCH_MAX_MS = 8 * 60 * 1000;
 
 let _timer: ReturnType<typeof setTimeout> | null = null;
 let _prev: Set<string> | null = null;
 let _stable = 0;
-let _startedAt = 0;
+/** Timestamp of the last observed progress (index change or reported warm). */
+let _lastProgressAt = 0;
 let _epoch = 0;
 
 function sameSet(a: Set<string>, b: Set<string> | null): boolean {
   if (!b || a.size !== b.size) return false;
   for (const x of a) if (!b.has(x)) return false;
   return true;
+}
+
+/** Accept both the current snapshot shape and the legacy bare-Set contract. */
+function normalizeSnapshot(raw: BusIndexSnapshot | Set<string>): BusIndexSnapshot {
+  return raw instanceof Set ? { types: raw, warming: null } : raw;
 }
 
 function stopTimer(): void {
@@ -54,16 +70,16 @@ async function poll(): Promise<void> {
   }
   const myEpoch = _epoch;
 
-  let snapshot: Set<string>;
+  let snapshot: BusIndexSnapshot;
   try {
-    snapshot = await client.fetchIndex();
+    snapshot = normalizeSnapshot(await client.fetchIndex());
   } catch {
     // A poll from a superseded arm/disarm cycle must not touch shared state.
     if (myEpoch !== _epoch) return;
     // Transient (backend mid-restart): keep the last snapshot and retry — but
     // still honor the backstop so a permanently-down index eventually settles
     // and stops instead of polling forever.
-    if (Date.now() - _startedAt >= WATCH_MAX_MS) {
+    if (Date.now() - _lastProgressAt >= WATCH_MAX_MS) {
       setBusIndex(_prev, true);
       stopTimer();
       return;
@@ -75,14 +91,22 @@ async function poll(): Promise<void> {
   // Superseded by a re-arm or disarm while awaiting — drop this stale result.
   if (myEpoch !== _epoch) return;
 
-  const changed = !sameSet(snapshot, _prev);
-  _prev = snapshot;
+  const changed = !sameSet(snapshot.types, _prev);
+  _prev = snapshot.types;
   _stable = changed ? 0 : _stable + 1;
 
-  const expired = Date.now() - _startedAt >= WATCH_MAX_MS;
-  const settled = _stable >= SETTLE_STABLE_POLLS || expired;
+  // Progress = the index grew, or the backend says it's still producing. Either
+  // way, more artifacts are expected, so the no-progress backstop restarts.
+  if (changed || snapshot.warming === true) _lastProgressAt = Date.now();
 
-  setBusIndex(snapshot, settled);
+  const expired = Date.now() - _lastProgressAt >= WATCH_MAX_MS;
+  // A reported-active warm blocks settling outright: quiescence during a warm
+  // means a slow producer, not a finished chain. When the backend says nothing
+  // (`null`), quiescence is all we have, so it governs as it always did.
+  const quiet = _stable >= SETTLE_STABLE_POLLS && snapshot.warming !== true;
+  const settled = quiet || expired;
+
+  setBusIndex(snapshot.types, settled);
   if (changed) {
     const inv = (client as { invalidate?: () => void }).invalidate;
     if (typeof inv === 'function') inv();
@@ -102,7 +126,7 @@ export function armBusIndexWatch(): void {
   _epoch += 1; // invalidate any poll still in flight from a prior arm cycle
   _prev = null; // force the first poll to count as a change (fresh warm)
   _stable = 0;
-  _startedAt = Date.now();
+  _lastProgressAt = Date.now();
   setBusIndex(null, false); // warm active; index not yet re-read → hooks fetch
   scheduleNext(0);
 }

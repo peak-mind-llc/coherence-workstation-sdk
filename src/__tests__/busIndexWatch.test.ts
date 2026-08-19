@@ -95,3 +95,62 @@ describe('busIndexWatch', () => {
     expect(busIndexHas('a')).toBe(false); // stale snapshot was not published
   });
 });
+
+describe('busIndexWatch — warm-in-flight signal', () => {
+  beforeEach(() => {
+    resetBusForTests();
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    disarmBusIndexWatch();
+    vi.useRealTimers();
+  });
+
+  it('does not settle while the backend reports a warm still in flight', async () => {
+    // Regression: SEGA__2026-08-18's normative step left the bus index
+    // unchanged for 112s mid-warm. The stability window alone (~60s) declared
+    // the warm finished, the watch stopped, and every artifact that landed
+    // afterwards (hrv.report among them) was stranded in its 'missing' empty
+    // state until a manual reload.
+    let warming = true;
+    const fetchIndex = vi.fn(async () => ({ types: new Set(['a']), warming }));
+    const client = { invalidate: vi.fn(), readArtifact: () => null, fetchIndex };
+    setBusClientForTests(client);
+    armBusIndexWatch();
+
+    await vi.advanceTimersByTimeAsync(1);
+    await vi.advanceTimersByTimeAsync(112 * 1000); // the real-world quiet gap
+    expect(isBusWarmSettled()).toBe(false);
+
+    warming = false; // producer chain finished
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(isBusWarmSettled()).toBe(true);
+  });
+
+  it('keeps watching a warm that outlives the no-progress backstop', async () => {
+    const fetchIndex = vi.fn(async () => ({ types: new Set(['a']), warming: true }));
+    const client = { invalidate: vi.fn(), readArtifact: () => null, fetchIndex };
+    setBusClientForTests(client);
+    armBusIndexWatch();
+
+    await vi.advanceTimersByTimeAsync(1);
+    await vi.advanceTimersByTimeAsync(10 * 60 * 1000); // past WATCH_MAX_MS
+    expect(isBusWarmSettled()).toBe(false);
+    // Still actually polling — not merely un-settled because the poll died.
+    expect(fetchIndex.mock.calls.length).toBeGreaterThan(200);
+  });
+
+  it('settles on stability when the backend does not report warm state', async () => {
+    // Backward compat: a fixture server (or any client on the old contract)
+    // returns a bare Set with no warming flag — the stability heuristic
+    // still governs, exactly as before.
+    const fetchIndex = vi.fn(async () => new Set(['a']));
+    const client = { invalidate: vi.fn(), readArtifact: () => null, fetchIndex };
+    setBusClientForTests(client);
+    armBusIndexWatch();
+
+    await vi.advanceTimersByTimeAsync(1);
+    await vi.advanceTimersByTimeAsync(70 * 1000);
+    expect(isBusWarmSettled()).toBe(true);
+  });
+});
