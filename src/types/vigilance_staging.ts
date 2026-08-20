@@ -1,5 +1,5 @@
 /**
- * Per-epoch Loomis vigilance staging. Faithful to cw_eeg/producers/vigilance_staging.py emission. dominant_state (v0.2.0) is the derived argmax of stage_distribution by count; null when the recording is too short to stage.
+ * Per-epoch Loomis vigilance staging. Faithful to cw_eeg/producers/vigilance_staging.py emission. dominant_state (v0.2.0) is the derived argmax of stage_distribution by count; null when the recording is too short to stage. analysis_windows (v0.6.0) carries the alert intervals an analysis should keep and the complement it should drop.
  */
 export interface VigilanceStaging {
   provenance: Provenance;
@@ -53,6 +53,25 @@ export interface VigilanceStaging {
       alpha_threshold_uv2?: number;
       theta_delta_threshold_uv2?: number;
       method?: string;
+      [k: string]: unknown;
+    };
+    /**
+     * Alert intervals an analysis should keep and the complement it should drop (v0.6.0). available=false when the condition kind is unknown or nothing was staged.
+     */
+    analysis_windows?: {
+      policy?: {
+        condition_kind?: string | null;
+        alert_stages?: string[];
+        deep_stages?: string[];
+        recovery_sec?: number;
+        [k: string]: unknown;
+      };
+      alert: [number, number][];
+      excluded: [number, number][];
+      recovery?: [number, number][];
+      retained_sec?: number;
+      total_sec?: number;
+      available: boolean;
       [k: string]: unknown;
     };
     [k: string]: unknown;
