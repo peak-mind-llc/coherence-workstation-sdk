@@ -17,6 +17,13 @@ export interface SignalPreprocessed {
      * Applied reference (always 'average')
      */
     reference: string;
+    /**
+     * Bandpass edges [l_freq, h_freq] in Hz actually applied. Optional for backwards compatibility with envelopes written before SPEC-050; absent means the canonical 0.5-100 Hz.
+     *
+     * @minItems 2
+     * @maxItems 2
+     */
+    filter_band_hz?: [number, number];
     [k: string]: unknown;
   };
   [k: string]: unknown;
