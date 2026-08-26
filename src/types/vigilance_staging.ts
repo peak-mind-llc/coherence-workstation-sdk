@@ -21,6 +21,14 @@ export interface VigilanceStaging {
       features?: {
         [k: string]: unknown;
       };
+      /**
+       * Why the classifier reached this stage, in plain language, quoting the measurement that decided it against the threshold it was compared to (v0.10.0). Produced by classify_epoch_explained and NOT re-derived by consumers — a second copy of the decision tree would drift.
+       */
+      stage_reason?: string;
+      /**
+       * Present only when a post-processing pass (§7) overruled the classifier, naming which one and what it changed (v0.10.0). The stage on screen is frequently NOT the one classify_epoch chose, so without this a reader sees a reason describing a decision that was then overridden. Null when the classifier's own call survived.
+       */
+      stage_override?: string | null;
       [k: string]: unknown;
     }[];
     /**
