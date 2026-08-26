@@ -23,8 +23,9 @@ import uPlot from 'uplot';
 import { DEFAULT_BANDS, placeReadoutTopRight, type BandRange } from './index';
 import { readCanvasTokens } from '../canvas-tokens';
 
-const F_MIN_HZ = 1;
-const F_MAX_HZ = 45;
+/* Fallback frequency window; callers pass the analysed band. */
+const F_MIN_HZ_DEFAULT = 1;
+const F_MAX_HZ_DEFAULT = 45;
 
 const BAND_TINT_KEYS = ['delta', 'theta', 'alpha', 'beta', 'gamma'] as const;
 const BAND_TINT_OPACITY_DEFAULT = 0.14;
@@ -90,6 +91,16 @@ export interface CompareSpectrumChartProps {
    * the cell under the cursor — so one hover reads every channel at once.
    */
   readoutOnCrosshair?: boolean;
+  /** Visible frequency window in Hz; defaults to 1-45. */
+  fMinHz?: number;
+  fMaxHz?: number;
+  /**
+   * Axis mode. 'lin' plots amplitude (µV/√Hz) and an amplitude difference;
+   * 'log' plots log10 power and a log-ratio difference. Both keep all three
+   * traces on one axis — in either mode the difference carries the same unit
+   * as the curves it came from.
+   */
+  yMode?: 'lin' | 'log';
 }
 
 /** Amplitude readout (µV/√Hz). Mirrors formatPower's precision ladder. */
@@ -126,6 +137,9 @@ function buildCompareBundle(
     band2Lower?: number[];
     normMean?: number[];
   },
+  fMinHz: number = F_MIN_HZ_DEFAULT,
+  fMaxHz: number = F_MAX_HZ_DEFAULT,
+  yMode: 'lin' | 'log' = 'lin',
 ): Bundle {
   const xs: number[] = [];
   const current: number[] = [];
@@ -142,7 +156,7 @@ function buildCompareBundle(
 
   for (let i = 0; i < freqs.length; i++) {
     const f = freqs[i];
-    if (f < F_MIN_HZ || f > F_MAX_HZ) continue;
+    if (f < fMinHz || f > fMaxHz) continue;
     const c = currentPsd[i];
     const p = priorPsd[i];
     if (!Number.isFinite(c) || !Number.isFinite(p) || c < 0 || p < 0) continue;
@@ -154,11 +168,34 @@ function buildCompareBundle(
     // comparison_report.py formula included `* 1e12` because it
     // received V²/Hz from MNE's raw PSD; that conversion is
     // already applied server-side now.
-    const ca = Math.sqrt(c);
-    const pa = Math.sqrt(p);
-    current.push(ca);
-    prior.push(pa);
-    diff.push(ca - pa);
+    /* Log mode is the same three quantities expressed on a log axis. The
+     * difference of two logs is log10(P_current / P_prior) — a distance in
+     * DECADES on the very axis the curves are drawn on, so it shares their
+     * unit exactly as the amplitude difference shares µV/√Hz in lin mode.
+     * Its zero means "no change"; a constant ratio is a constant vertical
+     * gap between the curves at every frequency, which is the read a linear
+     * axis cannot give you.
+     *
+     * Guard: log10(0) is -Infinity. The loop above already rejects negative
+     * values but admits exact zeros, so skip those here rather than poison
+     * the range with -Infinity. */
+    if (yMode === 'log') {
+      if (c <= 0 || p <= 0) {
+        xs.pop();
+        continue;
+      }
+      const cl = Math.log10(c);
+      const pl = Math.log10(p);
+      current.push(cl);
+      prior.push(pl);
+      diff.push(cl - pl);
+    } else {
+      const ca = Math.sqrt(c);
+      const pa = Math.sqrt(p);
+      current.push(ca);
+      prior.push(pa);
+      diff.push(ca - pa);
+    }
     /* Band arrays are in amplitude domain already (caller did the
      * log10 → amplitude conversion). NaN at an index is fine —
      * uPlot just skips the gap. */
@@ -219,6 +256,9 @@ export function CompareSpectrumChart({
   crosshairFreq = null,
   onHoverFreq,
   readoutOnCrosshair = false,
+  fMinHz = F_MIN_HZ_DEFAULT,
+  fMaxHz = F_MAX_HZ_DEFAULT,
+  yMode = 'lin',
 }: CompareSpectrumChartProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   /* Hover readout. Refs (not state) because the setCursor hook is created
@@ -230,6 +270,12 @@ export function CompareSpectrumChart({
   const crosshairFreqRef = useRef(crosshairFreq);
   const readoutOnCrosshairRef = useRef(readoutOnCrosshair);
   const priorLabelRef = useRef(priorLabel);
+  /* Read inside the once-created setCursor hook without recreating the plot.
+   * Mirrors priorLabelRef. */
+  const yModeRef = useRef(yMode);
+  useEffect(() => {
+    yModeRef.current = yMode;
+  }, [yMode]);
   useEffect(() => {
     onHoverFreqRef.current = onHoverFreq;
     readoutOnCrosshairRef.current = readoutOnCrosshair;
@@ -245,7 +291,7 @@ export function CompareSpectrumChart({
         band2Upper,
         band2Lower,
         normMean,
-      }),
+      }, fMinHz, fMaxHz, yMode),
     [
       freqs,
       currentPsd,
@@ -255,6 +301,9 @@ export function CompareSpectrumChart({
       band2Upper,
       band2Lower,
       normMean,
+      fMinHz,
+      fMaxHz,
+      yMode,
     ],
   );
 
@@ -292,6 +341,14 @@ export function CompareSpectrumChart({
     const fontLabel = cssVar('--workstation-font-label', '12px');
     const fontBody = cssVar('--workstation-font-body', '13px');
     const axisTickFont = `${fontLabel} ${monoFamily}`;
+    /* See UPlotMiniSpectrum: the label scales with the cell so a solo'd
+     * channel filling the pane gets a name sized for it. Existing sizes act
+     * as floors, so the 19-cell grid is untouched. */
+    const channelLabelPx = (plotHeightCssPx: number) =>
+      Math.max(
+        technical ? 13 : 11,
+        Math.min(40, Math.round(plotHeightCssPx * 0.055)),
+      );
     const channelLabelFont = technical
       ? `600 ${fontBody} ${monoFamily}`
       : `600 ${fontMeta} ${monoFamily}`;
@@ -323,8 +380,23 @@ export function CompareSpectrumChart({
       { stroke: currentColor, width: 1.4, points: { show: false } },
       // 2: prior
       { stroke: priorColor, width: 1.2, points: { show: false } },
-      // 3: diff
-      { stroke: diffColor, width: 1.0, points: { show: false } },
+      /* 3: diff. Drawn in lin, hidden in log.
+       *
+       * On a log axis the vertical gap between current and prior already IS
+       * the change — log10(P_cur) − log10(P_pri) is a distance on this very
+       * axis, so a constant ratio shows as a constant gap at every frequency.
+       * Drawing it again as its own line puts a trace at −0.5…+0.7 straight
+       * through curves spanning −2…+1, where it crosses both and reads as a
+       * third spectrum rather than as a change. In lin it stays: amplitude is
+       * always ≥ 0, so the diff hugs zero at the bottom of the range, clear of
+       * the curves. The value is still in `data` (and in the hover readout, as
+       * a percentage) — only the stroke is suppressed. */
+      {
+        stroke: diffColor,
+        width: 1.0,
+        points: { show: false },
+        show: yMode !== 'log',
+      },
     ];
     const data: (number[] | (number | null)[])[] = [
       bundle.xs,
@@ -373,7 +445,7 @@ export function CompareSpectrumChart({
       legend: { show: false },
       cursor: { x: true, y: false, drag: { x: false, y: false }, points: { show: false } },
       scales: {
-        x: { time: false, range: [F_MIN_HZ, F_MAX_HZ] },
+        x: { time: false, range: [fMinHz, fMaxHz] },
         y: { range: [yMinZ, yMaxZ] },
       },
       padding: technical ? [4, 4, 4, 32] : [2, 2, 2, 2],
@@ -395,6 +467,12 @@ export function CompareSpectrumChart({
               font: axisTickFont,
               size: 38,
               values: (_u, vals) => vals.map(compactNum),
+              /* Without this the axis was bare numerals in both modes, so a
+               * log reading of -2.0 looked like negative power rather than
+               * log10 of a power below 1 µV²/Hz. */
+              label: yMode === 'log' ? 'log₁₀ µV²/Hz' : 'µV/√Hz',
+              labelFont: axisTickFont,
+              labelSize: 18,
             },
           ]
         : [{ show: false }, { show: false }],
@@ -434,15 +512,19 @@ export function CompareSpectrumChart({
             c.restore();
             // Channel label + prior sublabel.
             c.save();
-            c.font = channelLabelFont;
+            const chPx = channelLabelPx(u.height);
+            const labelLeft = technical ? 44 : 5;
+            const labelTop = technical ? 6 : 3;
+            c.font = `600 ${chPx}px ${monoFamily}`;
             c.fillStyle = traceColor;
             c.textBaseline = 'top';
-            c.fillText(channel, technical ? 44 : 5, technical ? 6 : 3);
-            if (priorLabel) {
-              c.font = sublabelFont;
-              c.fillStyle = tertiaryColor;
-              c.fillText(priorLabel, technical ? 44 : 5, technical ? 24 : 16);
-            }
+            c.fillText(channel, labelLeft, labelTop);
+            /* The prior date is NOT drawn per cell. It is identical in all 19
+             * cells, and a full ISO date is wider than the gutter the channel
+             * name sits in, so it clipped. The caller shows it once, with a
+             * colour swatch, in the pane header — one source of truth, and it
+             * names which stroke is which, which per-cell text never did.
+             * `priorLabel` is still used in the hover readout below. */
             c.restore();
           },
         ],
@@ -485,16 +567,29 @@ export function CompareSpectrumChart({
             const pri = bundle.prior[bestIdx];
             // Percent change reads more usefully than a raw amplitude delta
             // when cells span very different scales.
-            const pct =
-              Number.isFinite(cur) && Number.isFinite(pri) && pri > 0
-                ? ((cur - pri) / pri) * 100
-                : null;
+            const isLog = yModeRef.current === 'log';
+            /* Percent change in whatever this mode plots, so the number always
+             * matches the values beside it. Lin plots amplitude, so this stays
+             * the amplitude change it has always been. Log plots log10 power,
+             * where the difference IS the log-ratio, so 10^Δ recovers the power
+             * ratio directly. The two modes therefore report different figures
+             * for the same data — amplitude vs power — which is correct: each
+             * describes the quantity actually on screen. */
+            const pct = !(Number.isFinite(cur) && Number.isFinite(pri))
+              ? null
+              : isLog
+                ? (Math.pow(10, cur - pri) - 1) * 100
+                : pri > 0
+                  ? ((cur - pri) / pri) * 100
+                  : null;
             const priorTag = priorLabelRef.current ? `${priorLabelRef.current} ` : '';
             const delta =
               pct == null ? '' : ` (${pct >= 0 ? '+' : ''}${pct.toFixed(0)}%)`;
+            const unitTag = isLog ? 'log₁₀ µV²/Hz' : 'µV/√Hz';
+            const fmt = isLog ? (v: number) => v.toFixed(2) : formatAmp;
             tip.textContent =
-              `${f.toFixed(1)} Hz · ${priorTag}${formatAmp(pri)} → ` +
-              `${formatAmp(cur)} µV/√Hz${delta}`;
+              `${f.toFixed(1)} Hz · ${priorTag}${fmt(pri)} → ` +
+              `${fmt(cur)} ${unitTag}${delta}`;
             tip.style.display = 'block';
             const pos = placeReadoutTopRight(u.bbox, tip.offsetWidth);
             tip.style.left = `${pos.left}px`;

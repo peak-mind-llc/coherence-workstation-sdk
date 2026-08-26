@@ -52,8 +52,13 @@ const UNDER_CURVE_BAND_ALPHA = 0.7;
 
 const ALPHA_LO = 8;
 const ALPHA_HI = 13;
-const F_MIN_HZ = 1;
-const F_MAX_HZ = 45;
+/* Default frequency window. Callers that know the band actually analysed
+ * (e.g. the op-stack's display filter) should pass fMinHz/fMaxHz instead —
+ * a fixed 1-45 window silently discarded both the sub-1 Hz bin the PSD
+ * producer ships and everything from 45 Hz to its 50 Hz ceiling, and showed
+ * a band the user's high-pass had already removed. */
+const F_MIN_HZ_DEFAULT = 1;
+const F_MAX_HZ_DEFAULT = 45;
 
 /**
  * A clickable peak marker rendered on the spectrum curve. Plugins (e.g.
@@ -239,6 +244,22 @@ export interface UPlotMiniSpectrumProps {
   logMax: number;
   /** Y-axis mode. 'z' falls back to 'log' when norm is missing. */
   yMode?: SpectrumYMode;
+  /**
+   * Visible frequency window in Hz. Defaults to 1-45. Pass the band actually
+   * analysed (the op-stack display filter, clipped to the frequencies the PSD
+   * payload carries) so the axis stops showing a range the high-pass removed
+   * and stops discarding bins the producer shipped.
+   */
+  fMinHz?: number;
+  fMaxHz?: number;
+  /**
+   * Fill the area under the curve down to the y-floor and tint it by band,
+   * instead of drawing full-height vertical band stripes behind the curve.
+   * Requires `showBandTints`. Now valid in log as well as lin: with the log
+   * floor anchored at logMin the baseline is meaningful, so filling to it
+   * reads correctly in both modes.
+   */
+  fillUnder?: boolean;
   /** Y-range zoom multiplier. >1 zooms in (smaller visible range). */
   yZoom?: number;
   /** Optional ±1σ / ±2σ bounds in log10(µV²/Hz), already projected to subject freqs. */
@@ -391,6 +412,8 @@ function buildModeBundle(
   band2Lower?: number[],
   ribbons?: ReadonlyArray<{ upper: number[]; lower: number[]; fill: string }>,
   medianLine?: number[],
+  fMinHz: number = F_MIN_HZ_DEFAULT,
+  fMaxHz: number = F_MAX_HZ_DEFAULT,
 ): ModeBundle {
   const haveNorm = !!normMean && !!normSd;
   const effectiveMode: SpectrumYMode =
@@ -417,7 +440,7 @@ function buildModeBundle(
 
   for (let i = 0; i < freqs.length; i++) {
     const f = freqs[i];
-    if (f < F_MIN_HZ || f > F_MAX_HZ) continue;
+    if (f < fMinHz || f > fMaxHz) continue;
     const v = psd[i];
     if (!Number.isFinite(v) || v <= 0) continue;
     xs.push(f);
@@ -508,9 +531,14 @@ function buildModeBundle(
     const linMax = Math.pow(10, logMax) / z;
     yRange = [0, linMax];
   } else {
-    const center = (logMin + logMax) / 2;
-    const half = (logMax - logMin) / 2 / z;
-    yRange = [center - half, center + half];
+    // Log anchors its floor at logMin and zooms upward, mirroring lin's
+    // [0, max]. Previously log centred the range and zoomed symmetrically
+    // about the middle, which pulled the curve away from the cell floor and
+    // left the baseline arbitrary — that in turn is why fill-under was
+    // restricted to lin. With the floor pinned, the baseline means "the
+    // quietest thing on this head", so filling down to it is meaningful and
+    // zoom behaves the same way in both modes.
+    yRange = [logMin, logMin + (logMax - logMin) / z];
   }
 
   const yLabel =
@@ -554,6 +582,9 @@ export default function UPlotMiniSpectrum({
   logMin,
   logMax,
   yMode = 'log',
+  fMinHz = F_MIN_HZ_DEFAULT,
+  fMaxHz = F_MAX_HZ_DEFAULT,
+  fillUnder = true,
   yZoom = 1,
   band1Upper,
   band1Lower,
@@ -642,6 +673,8 @@ export default function UPlotMiniSpectrum({
         band2Lower,
         ribbons,
         medianLine,
+        fMinHz,
+        fMaxHz,
       );
       return yLabelOverride ? { ...bundle, yLabel: yLabelOverride } : bundle;
     },
@@ -662,6 +695,8 @@ export default function UPlotMiniSpectrum({
       band2Lower,
       ribbons,
       medianLine,
+      fMinHz,
+      fMaxHz,
     ],
   );
 
@@ -726,8 +761,16 @@ export default function UPlotMiniSpectrum({
      * CSS-pixel size (same trick the raw-trace draw hook uses). The
      * label position below is multiplied for the same reason. */
     const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
-    const channelLabelCssPx = technical ? 18 : 14;
-    const channelLabelFont = `700 ${channelLabelCssPx * dpr}px ${monoFamily}`;
+    /* Channel label scales with the cell it sits in. A fixed two-step size
+     * was tuned for the 19-cell thumbnail grid and stayed that size when one
+     * channel was solo'd to fill the whole pane, leaving a ~14px name on a
+     * 1000px-tall chart. The `technical ? 18 : 14` values become FLOORS, so
+     * the thumbnail grid is unchanged and only larger cells grow. */
+    const channelLabelPx = (plotHeightCssPx: number) =>
+      Math.max(
+        technical ? 18 : 14,
+        Math.min(44, Math.round(plotHeightCssPx * 0.055)),
+      );
     const noNormFont = `600 ${fontMeta} ${monoFamily}`;
     const hoverFont = `${technical ? fontBody : fontMeta} ${monoFamily}`;
     const surfaceInset = ct.bg;
@@ -769,7 +812,7 @@ export default function UPlotMiniSpectrum({
         let xi = 0;
         for (let i = 0; i < freqs.length; i++) {
           const f = freqs[i];
-          if (f < F_MIN_HZ || f > F_MAX_HZ) continue;
+          if (f < fMinHz || f > fMaxHz) continue;
           if (xi >= ys.length) break;
           const v = ov.psd[i];
           if (Number.isFinite(v) && v > 0) {
@@ -864,7 +907,7 @@ export default function UPlotMiniSpectrum({
         points: { show: false },
       },
       scales: {
-        x: { time: false, range: [F_MIN_HZ, F_MAX_HZ] },
+        x: { time: false, range: [fMinHz, fMaxHz] },
         y: { range: inputs.yRange },
       },
       padding,
@@ -901,15 +944,20 @@ export default function UPlotMiniSpectrum({
       hooks: {
         /* drawAxes fires AFTER axes/grid but BEFORE any series — anything
          * painted here ends up below the trace. We use it for the WinEEG-
-         * style "fill area under the curve with band colors" rendering in
-         * linear mode: the eye reads band identity from the colored area,
-         * not from a vertical stripe over the whole panel. Log/z modes
-         * keep the original vertical-stripe rendering in the `draw` hook
-         * below — fill-under doesn't make sense when the baseline isn't
-         * a meaningful zero. */
+         * style "fill area under the curve with band colors" rendering: the
+         * eye reads band identity from the colored area, not from a vertical
+         * stripe over the whole panel.
+         *
+         * Valid in lin AND log. Both anchor yRange[0] at their floor — 0 for
+         * lin, logMin for log — so `yZero` below is a real baseline in either
+         * mode. (Log used to centre its range, which left no meaningful
+         * baseline to fill down to; that is why this was once lin-only.)
+         * z-mode still uses stripes: its baseline is z=0, the middle of the
+         * axis, so filling downward from the curve would be meaningless.
+         * `fillUnder` lets the caller pick stripes anyway. */
         drawAxes: [
           (u) => {
-            if (!showBandTints || yMode !== 'lin') return;
+            if (!showBandTints || !fillUnder || yMode === 'z') return;
             const xs = inputs.xs;
             const ys = inputs.ys;
             if (xs.length < 2) return;
@@ -954,7 +1002,7 @@ export default function UPlotMiniSpectrum({
             const yT = u.valToPos(inputs.yRange[1], 'y', true);
             const yB = u.valToPos(inputs.yRange[0], 'y', true);
 
-            if (showBandTints && yMode !== 'lin') {
+            if (showBandTints && (!fillUnder || yMode === 'z')) {
               c.save();
               c.globalAlpha = bandTintOpacity ?? BAND_TINT_OPACITY;
               for (const k of BAND_TINT_KEYS) {
@@ -988,7 +1036,7 @@ export default function UPlotMiniSpectrum({
               c.save();
               for (const m of peakMarkers) {
                 if (!Number.isFinite(m.cf)) continue;
-                if (m.cf < F_MIN_HZ || m.cf > F_MAX_HZ) continue;
+                if (m.cf < fMinHz || m.cf > fMaxHz) continue;
                 if (xs.length === 0) continue;
                 let bestIdx = 0;
                 let bestD = Math.abs(xs[0] - m.cf);
@@ -1057,7 +1105,8 @@ export default function UPlotMiniSpectrum({
             }
 
             c.save();
-            c.font = channelLabelFont;
+            const chLabelPx = channelLabelPx(u.height);
+            c.font = `700 ${chLabelPx * dpr}px ${monoFamily}`;
             c.fillStyle = traceColor;
             c.textBaseline = 'top';
             /* Position in CSS pixels × DPR so the corner offset stays the
