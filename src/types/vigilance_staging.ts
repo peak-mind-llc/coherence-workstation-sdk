@@ -17,6 +17,9 @@ export interface VigilanceStaging {
       time_start_sec: number;
       time_end_sec: number;
       stage: string;
+      /**
+       * Confidence in the CLASSIFIER's call — see classifier_stage. A per-branch constant, not derived from the epoch (CAP-03 §12.2), so it does not distinguish a marginal decision from an unambiguous one. Do not rank on it; rank on distance from the deciding threshold.
+       */
       confidence: number;
       features?: {
         [k: string]: unknown;
@@ -29,6 +32,10 @@ export interface VigilanceStaging {
        * Present only when a post-processing pass (§7) overruled the classifier, naming which one and what it changed (v0.10.0). The stage on screen is frequently NOT the one classify_epoch chose, so without this a reader sees a reason describing a decision that was then overridden. Null when the classifier's own call survived.
        */
       stage_override?: string | null;
+      /**
+       * The stage classify_epoch chose, before post-processing (v0.11.0). `confidence` describes THIS stage, not `stage` — the two differ whenever a smoothing, clamping or minimum-duration pass overrode the call, measured at 18.3% of epochs. Emitted so the pairing is explicit rather than leaving a confidence beside a stage it was never about. See CAP-03 §12.19.
+       */
+      classifier_stage?: string;
       [k: string]: unknown;
     }[];
     /**
