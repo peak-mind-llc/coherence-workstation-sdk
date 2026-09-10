@@ -213,6 +213,8 @@ export type {
 export {
   renderTopomap,
   ELECTRODE_POSITIONS,
+  ELECTRODE_HIT_RADIUS,
+  hitTestElectrode,
   Topomap,
   TopoColorbar,
   TopoValueHover,

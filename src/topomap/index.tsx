@@ -52,6 +52,64 @@ export const ELECTRODE_POSITIONS: Record<string, { x: number; y: number }> = {
   P7:  { x: 0.18, y: 0.70 }, P8:  { x: 0.82, y: 0.70 },
 };
 
+/**
+ * Largest normalised distance from an electrode that still counts as clicking
+ * it. Chosen from the montage, not by feel: the closest DISTINCT pair in
+ * ELECTRODE_POSITIONS is O1-PO3 at 0.0825 apart, so anything below 0.0412
+ * cannot blur two neighbours together. A clinician aiming at one site must
+ * never mark another.
+ *
+ * Four pairs ARE co-located and always will be — P7/T5, P8/T6, T3/T7, T4/T8
+ * are the 10-20 and 10-10 names for one electrode. A hit there is ambiguous by
+ * construction; which name comes back is decided by the montage passed in.
+ */
+export const ELECTRODE_HIT_RADIUS = 0.04;
+
+/**
+ * The electrode at a normalised (0-1) point on a topomap, or null.
+ *
+ * `nx`/`ny` are the topomap's own coordinate space — the same one
+ * ELECTRODE_POSITIONS uses and `drawTopomap` paints from (`e.nx * S`), so a
+ * hit test cannot drift from where the dot actually is. To go from a DOM click:
+ *
+ *     const r = canvas.getBoundingClientRect();
+ *     hitTestElectrode((e.clientX - r.left) / r.width,
+ *                      (e.clientY - r.top) / r.height, channels);
+ *
+ * Returns null for a click on empty scalp rather than snapping to whatever is
+ * nearest. Marking a claim the clinician did not point at is worse than
+ * marking nothing.
+ *
+ * Only `channels` are considered, and names with no known position are
+ * skipped — so a montage without T3 never resolves a click to it, and
+ * non-scalp channels (EKG, A1) can be passed through harmlessly.
+ */
+export function hitTestElectrode(
+  nx: number,
+  ny: number,
+  channels: readonly string[],
+): string | null {
+  if (!Number.isFinite(nx) || !Number.isFinite(ny)) return null;
+  let best: string | null = null;
+  let bestD2 = ELECTRODE_HIT_RADIUS * ELECTRODE_HIT_RADIUS;
+  for (const ch of channels) {
+    const pos = ELECTRODE_POSITIONS[ch];
+    if (!pos) continue;
+    const d2 = (nx - pos.x) ** 2 + (ny - pos.y) ** 2;
+    // Strictly less-than, so on an exact tie the FIRST channel given wins.
+    // That only arises for the co-located alias pairs, where it makes the
+    // result predictable from the caller's montage order rather than from
+    // iteration accident.
+    if (d2 < bestD2) {
+      bestD2 = d2;
+      best = ch;
+    }
+  }
+  return best;
+}
+
+
+
 const HEAD_CX = 0.50;
 const HEAD_CY = 0.50;
 const HEAD_R  = 0.44;
