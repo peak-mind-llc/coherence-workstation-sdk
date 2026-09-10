@@ -10,10 +10,16 @@
  * The wrapper does NOT own the canvas — it expects a square child element
  * (typically a canvas rendered by renderTopomap or <Topomap>) and resolves
  * mouse coordinates against that child's bounding rect.
+ *
+ * Hit-testing is `hitTestElectrode` — the SAME call a click uses — so the
+ * tooltip can never name an electrode a click would miss. It had its own
+ * copy of that search until SPEC-049R, and the two drifted: the tooltip
+ * reached 0.15 while the click reached 0.04, which made the head-map click
+ * target unusable while the tooltip looked fine.
  */
 
 import { useCallback, useRef, useState, type ReactNode } from 'react';
-import { ELECTRODE_POSITIONS } from './index';
+import { ELECTRODE_HIT_RADIUS, hitTestElectrode } from './index';
 
 export interface TopoValueHoverProps {
   /** Channel-name → value mapping. Only channels present here participate
@@ -41,25 +47,10 @@ function defaultFormatValue(v: number): string {
   return `${mantissa.toFixed(1)}e${exp}`;
 }
 
-function nearestElectrode(
-  nx: number,
-  ny: number,
-  channels: string[],
-): { ch: string; dist: number } | null {
-  let best: { ch: string; dist: number } | null = null;
-  for (const ch of channels) {
-    const pos = ELECTRODE_POSITIONS[ch];
-    if (!pos) continue;
-    const d = Math.sqrt((nx - pos.x) ** 2 + (ny - pos.y) ** 2);
-    if (!best || d < best.dist) best = { ch, dist: d };
-  }
-  return best;
-}
-
 export function TopoValueHover({
   values,
   unit,
-  hitRadius = 0.15,
+  hitRadius = ELECTRODE_HIT_RADIUS,
   formatValue,
   children,
 }: TopoValueHoverProps) {
@@ -82,11 +73,13 @@ export function TopoValueHover({
       if (rect.width === 0 || rect.height === 0) return;
       const nx = (e.clientX - rect.left) / rect.width;
       const ny = (e.clientY - rect.top) / rect.height;
-      const nearest = nearestElectrode(nx, ny, channels);
-      if (nearest && nearest.dist < hitRadius && values[nearest.ch] !== undefined) {
+      // The SAME hit test a click uses, so the tooltip cannot name an
+      // electrode the click would miss (SPEC-049R).
+      const ch = hitTestElectrode(nx, ny, channels, hitRadius);
+      if (ch && values[ch] !== undefined) {
         setHover({
-          ch: nearest.ch,
-          val: values[nearest.ch],
+          ch,
+          val: values[ch],
           x: e.clientX - rect.left,
           y: e.clientY - rect.top,
         });

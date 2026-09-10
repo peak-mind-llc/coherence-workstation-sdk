@@ -53,17 +53,25 @@ export const ELECTRODE_POSITIONS: Record<string, { x: number; y: number }> = {
 };
 
 /**
- * Largest normalised distance from an electrode that still counts as clicking
- * it. Chosen from the montage, not by feel: the closest DISTINCT pair in
- * ELECTRODE_POSITIONS is O1-PO3 at 0.0825 apart, so anything below 0.0412
- * cannot blur two neighbours together. A clinician aiming at one site must
- * never mark another.
+ * How far from an electrode a pointer can be and still count as on it.
+ *
+ * This is REACH, not disambiguation. The search below returns the NEAREST
+ * electrode and then range-checks it, so a larger radius can never blur two
+ * neighbours together — it only decides how much of the head counts as "not on
+ * any electrode". An earlier version of this comment justified 0.04 by the
+ * closest distinct pair being 0.0825 apart; that reasoning describes a
+ * different algorithm (one returning any electrode in range) and was wrong.
+ * The consequence was a click target four times smaller than it needed to be.
+ *
+ * 0.15 is the value TopoValueHover has used since it was ported from the
+ * legacy dashboard. Sharing it is the point: the hover tooltip names the
+ * electrode a click will hit, so what a clinician aims at is what they get.
  *
  * Four pairs ARE co-located and always will be — P7/T5, P8/T6, T3/T7, T4/T8
  * are the 10-20 and 10-10 names for one electrode. A hit there is ambiguous by
  * construction; which name comes back is decided by the montage passed in.
  */
-export const ELECTRODE_HIT_RADIUS = 0.04;
+export const ELECTRODE_HIT_RADIUS = 0.15;
 
 /**
  * The electrode at a normalised (0-1) point on a topomap, or null.
@@ -88,10 +96,11 @@ export function hitTestElectrode(
   nx: number,
   ny: number,
   channels: readonly string[],
+  radius: number = ELECTRODE_HIT_RADIUS,
 ): string | null {
   if (!Number.isFinite(nx) || !Number.isFinite(ny)) return null;
   let best: string | null = null;
-  let bestD2 = ELECTRODE_HIT_RADIUS * ELECTRODE_HIT_RADIUS;
+  let bestD2 = radius * radius;
   for (const ch of channels) {
     const pos = ELECTRODE_POSITIONS[ch];
     if (!pos) continue;
