@@ -15,26 +15,31 @@ describe('<PillBtn>', () => {
     expect(onClick).toHaveBeenCalledTimes(1);
   });
 
-  it('shows active state via accent tint + accent text + accent border-bottom', () => {
-    /* SPEC-016 follow-up: selection is accent-tinted background +
-     * accent text + 2px accent bottom border. Border-bottom (not inset
-     * boxShadow) is used so adjacent pills in a WorkstationPill don't
-     * pick up ghost fragments at their joins. */
+  /* These two asserted the SPEC-016 design: an accent-subtle tint under a 2px
+   * accent underline, with both states carrying `border-b-2` so the height
+   * never shifted. That design was deliberately replaced — the component's own
+   * note records it: "Per user feedback the underline is gone; the fill alone
+   * carries the active signal, which makes ProgramTabs + PhaseStrip read as
+   * actual pills." Nobody updated the tests, and nobody noticed, because this
+   * package's 29 test files resolved nowhere and had never run. They run now
+   * (desktop/vite.config.mts), and these assert the design that shipped. */
+  it('shows active state as a solid accent fill with on-accent text', () => {
     render(<PillBtn title="t" onClick={() => {}} active>x</PillBtn>);
     const btn = screen.getByTitle('t');
-    expect(btn.className).toContain('bg-[var(--accent-subtle)]');
-    expect(btn.className).toContain('text-[var(--accent-primary)]');
-    expect(btn.className).toContain('border-b-2');
-    expect(btn.style.borderBottomColor).toBe('var(--accent-primary)');
+    expect(btn.className).toContain('bg-[var(--accent-primary)]');
+    // `--text-on-accent`, not `--surface-ground`: the latter resolved to the
+    // dark page background on dark themes, i.e. dark-on-blue.
+    expect(btn.className).toContain('text-[var(--text-on-accent,#fff)]');
+    expect(btn.className).toContain('font-bold');
+    // The underline is gone in BOTH states, so no layout compensation is needed.
+    expect(btn.className).not.toContain('border-b-2');
   });
 
-  it('renders a transparent border-bottom when inactive (preserves layout)', () => {
-    /* Both states ship border-b-2 so the pill height never shifts when
-     * the active marker appears/disappears. Inactive just has transparent
-     * border-bottom-color. */
+  it('renders inactive as muted text with no fill and no underline', () => {
     render(<PillBtn title="t" onClick={() => {}}>x</PillBtn>);
     const btn = screen.getByTitle('t');
-    expect(btn.className).toContain('border-b-2');
-    expect(btn.style.borderBottomColor).toBe('transparent');
+    expect(btn.className).toContain('text-[var(--text-secondary)]');
+    expect(btn.className).not.toContain('bg-[var(--accent-primary)]');
+    expect(btn.className).not.toContain('border-b-2');
   });
 });
