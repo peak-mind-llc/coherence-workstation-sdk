@@ -218,6 +218,7 @@ export {
   Topomap,
   TopoColorbar,
   TopoValueHover,
+  formatTopoValue,
   renderColorbarCanvas,
   centreForTopo,
 } from './topomap';

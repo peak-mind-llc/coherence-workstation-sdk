@@ -739,7 +739,7 @@ export function Topomap({
 export { TopoColorbar, renderColorbarCanvas } from './TopoColorbar';
 export type { TopoColorbarProps } from './TopoColorbar';
 
-export { TopoValueHover } from './TopoValueHover';
+export { TopoValueHover, formatTopoValue } from './TopoValueHover';
 export type { TopoValueHoverProps } from './TopoValueHover';
 
 export { centreForTopo } from './centreForTopo';

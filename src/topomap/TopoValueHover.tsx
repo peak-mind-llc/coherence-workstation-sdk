@@ -36,7 +36,17 @@ export interface TopoValueHoverProps {
   children: ReactNode;
 }
 
-function defaultFormatValue(v: number): string {
+/**
+ * How a topomap value is written when the caller supplies no formatter:
+ * enough significant figures to separate neighbouring electrodes, in plain
+ * decimal until the number is small enough to need an exponent.
+ *
+ * Exported because the hover tooltip is not the only place a cell's value is
+ * quoted back to the clinician — the head-map annotation editor echoes it as
+ * its subtitle, and the two must not disagree about a number the clinician
+ * just read off the same cell.
+ */
+export function formatTopoValue(v: number): string {
   if (Math.abs(v) >= 100) return v.toFixed(1);
   if (Math.abs(v) >= 1) return v.toFixed(2);
   if (Math.abs(v) >= 0.01) return v.toFixed(3);
@@ -62,7 +72,7 @@ export function TopoValueHover({
     y: number;
   } | null>(null);
 
-  const fmt = formatValue ?? defaultFormatValue;
+  const fmt = formatValue ?? formatTopoValue;
   const channels = Object.keys(values);
 
   const handleMouseMove = useCallback(
