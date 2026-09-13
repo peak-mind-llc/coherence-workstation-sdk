@@ -85,6 +85,16 @@ export interface IcaProfilePerIc {
           brodmann_areas?: number[];
           network_membership?: string[];
           region_power?: number;
+          /**
+           * The Desikan-Killiany parcel the peak VOXEL sits in, with the distance to it. Distinct from `name` above, which is the parcel carrying the most summed source energy across the whole volume; on real data the two usually differ, so anything that marks `mni_coords` and captions it must caption it from here. Null, or absent entirely, when the peak is farther from labelled cortex than the atlas lookup will name across — and absent on every artifact produced before this field existed. In both cases the correct reading is 'no anatomy is known for this voxel', never a fallback to `name`.
+           */
+          at_peak_voxel?: {
+            name?: string | null;
+            hemisphere?: string | null;
+            distance_mm?: number | null;
+            confidence?: string | null;
+            [k: string]: unknown;
+          } | null;
           [k: string]: unknown;
         };
         top_parcels?: {
