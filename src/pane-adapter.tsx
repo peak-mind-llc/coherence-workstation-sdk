@@ -48,10 +48,9 @@ export interface PaneAdapterDefinition<TState = unknown> {
   restoreState: (snapshot: unknown) => TState;
   schemaVersion: number;
   renderableLayers?: readonly number[];
-  /** Phase 8 — opt-in to light-mode screenshot capture. SVG-only
-   *  renderers can set this true unconditionally; canvas/uPlot
-   *  renderers must also register a repainter via
-   *  registerCaptureRepainter(paneId, …) inside the renderer. */
+  /** Phase 8 — opt-in to light-mode screenshot capture. Set it on every
+   *  renderer; a theme-coloured canvas not drawn by renderTopomap /
+   *  <Topomap> also needs a repainter (see RendererRegistration). */
   supportsLightCapture?: boolean;
   /** SPEC-026 T35 — pane-level info content. When present, the host
    *  chrome renders a `<PaneInfo>` affordance (ⓘ → hover headline →

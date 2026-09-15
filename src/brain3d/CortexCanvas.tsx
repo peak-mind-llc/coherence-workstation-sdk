@@ -136,7 +136,16 @@ export default function CortexCanvas({
   return (
     <Canvas
       camera={{ position: [1.7, 0.4, 1.7], fov: 32, near: 0.1, far: 100 }}
-      gl={{ antialias: true, alpha: true, localClippingEnabled: true }}
+      // preserveDrawingBuffer: a finding capture reads this canvas back after
+      // the frame has been presented. Without it WebGL clears the buffer on
+      // present and the brain captures as an empty rectangle — the same fix
+      // the niivue slicers carry (PEA-207).
+      gl={{
+        antialias: true,
+        alpha: true,
+        localClippingEnabled: true,
+        preserveDrawingBuffer: true,
+      }}
       style={{ background: 'var(--surface-ground)', ...style }}
       onCreated={({ gl }) => {
         // localClipping must be enabled for THREE.Plane clipping to

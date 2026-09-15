@@ -46,12 +46,15 @@ export interface RendererRegistration {
    */
   emits?: string;
   /**
-   * Phase 8 — opt-in to light-mode screenshot capture. SVG-only
-   * renderers can set this true unconditionally; canvas/uPlot
-   * renderers must also register a per-instance repainter via
-   * `registerCaptureRepainter(paneId, …)` inside the renderer.
-   * When omitted, light-mode capture warns once per pane type and
-   * falls back to current-theme capture.
+   * Phase 8 — opt-in to light-mode screenshot capture. Every finding
+   * capture is light, so set this on every renderer. DOM/SVG renderers
+   * need nothing more, and a canvas drawn with `renderTopomap` /
+   * `<Topomap>` redraws itself light. Any other theme-coloured canvas
+   * (uPlot, a hand-drawn 2D canvas) must register a repainter —
+   * `registerCaptureRepainter(paneId, …)` or
+   * `registerCanvasRepainter(canvas, …)` — and a WebGL canvas needs
+   * `preserveDrawingBuffer: true`. When omitted, light-mode capture
+   * warns once per pane type and falls back to current-theme capture.
    */
   supportsLightCapture?: boolean;
   /**

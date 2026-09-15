@@ -22,6 +22,7 @@
 import { useEffect, useRef } from 'react';
 import { getColormap, type ColormapName, type ColormapFn } from '../colormap';
 import { readCanvasTokens } from '../canvas-tokens';
+import { registerCanvasRepainter } from '../capture-repainter';
 
 /* ------------------------------------------------------------------ */
 /*  Standard 10-20 electrode positions (normalised 0–1)                */
@@ -389,6 +390,11 @@ export function renderTopomap(
   absMax: number,
   options: TopoRenderOptions = {},
 ): void {
+  /* Light-mode finding capture redraws this canvas into its clone with the
+   * same data. drawTopomap reads its outline/label colours from the canvas it
+   * draws on, and the clone sits inside the light-themed offscreen container,
+   * so every topomap comes out light without any pane-specific code. */
+  registerCanvasRepainter(canvas, (target) => drawTopomap(target, values, absMax, options));
   ensureTopomapObserved(canvas);
   if (offscreenTopomapCanvases.has(canvas)) {
     pendingTopomaps.set(canvas, { values, absMax, options });

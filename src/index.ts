@@ -194,9 +194,11 @@ export {
 export {
   registerCaptureRepainter,
   getCaptureRepainter,
+  registerCanvasRepainter,
+  getCanvasRepainter,
   clearCaptureRepaintersForTesting,
 } from './capture-repainter';
-export type { CaptureRepainter } from './capture-repainter';
+export type { CaptureRepainter, CanvasRepainter } from './capture-repainter';
 export type {
   SubFocusBus,
   SubFocusItem,
