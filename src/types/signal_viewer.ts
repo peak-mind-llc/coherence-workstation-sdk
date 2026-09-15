@@ -82,6 +82,10 @@ export interface WindowedSignalData {
     requestedMontage: string;
     reason: string;
   };
+
+  /** The montage the server computed this payload for (``montage_key``).
+   *  Unset when the producer doesn't echo it. */
+  montageKey?: string;
 }
 
 /** Raw API response from GET /api/sessions/{id}/{date}/signal-window */
