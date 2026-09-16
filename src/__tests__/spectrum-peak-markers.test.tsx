@@ -19,7 +19,7 @@ describe('UPlotMiniSpectrum peak markers — SDK surface', () => {
       color: '#16a34a',
       radius: 4,
       opacity: 0.8,
-      meta: { label: 'adaptive', peakIndex: 2 },
+      meta: { label: 'compensatory', peakIndex: 2 },
     };
     expect(marker.cf).toBe(10);
     expect(marker.color).toBe('#16a34a');

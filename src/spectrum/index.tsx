@@ -709,7 +709,7 @@ export default function UPlotMiniSpectrum({
     const cssVar = (name: string, fallback: string) =>
       styles.getPropertyValue(name).trim() || fallback;
     /* Marker colors arrive as CSS custom-property references — the clinical
-     * label ramp (`var(--foreground-label-rigid)`), so the popover chip and
+     * label ramp (`var(--foreground-label-peak-primary)`), so the popover chip and
      * this canvas dot read ONE token and cannot drift, and the marker design's
      * own `strokeColor: 'var(--surface-base)'`. Canvas can't parse `var(…)`:
      * assigning it to fillStyle/strokeStyle is silently IGNORED, leaving the
