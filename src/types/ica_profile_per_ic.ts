@@ -36,7 +36,7 @@ export interface IcaProfilePerIc {
         /**
          * Left/right asymmetry classification of the IC topography.
          */
-        lateralization?: "left" | "right" | "midline" | "bilateral";
+        lateralization?: "left" | "right" | "midline" | "bilateral" | "diffuse";
         [k: string]: unknown;
       };
       spectrum?: {
@@ -58,10 +58,14 @@ export interface IcaProfilePerIc {
            * Peak bandwidth (Hz).
            */
           bw?: number;
+          /**
+           * Band the peak's frequency falls in (delta|theta|alpha|beta|gamma).
+           */
+          band?: string | null;
           [k: string]: unknown;
         }[];
         /**
-         * Band label of the highest-pw peak (delta|theta|alpha|beta|gamma); null if no clear peak.
+         * Band holding the most summed power in the component's spectrum (delta|theta|alpha|beta|gamma); null when no band holds power.
          */
         dominant_band?: string | null;
         /**
