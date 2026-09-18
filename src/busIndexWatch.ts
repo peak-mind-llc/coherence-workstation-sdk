@@ -108,8 +108,10 @@ async function poll(): Promise<void> {
 
   setBusIndex(snapshot.types, settled);
   if (changed) {
-    const inv = (client as { invalidate?: () => void }).invalidate;
-    if (typeof inv === 'function') inv();
+    // Called as a method, never detached: HttpBusClient.invalidate reads
+    // `this`, and a throw here would end the poll without rescheduling it.
+    const c = client as { invalidate?: () => void };
+    if (typeof c.invalidate === 'function') c.invalidate();
   }
 
   if (settled) {

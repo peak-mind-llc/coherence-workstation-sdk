@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { setBusClientForTests, resetBusForTests, isBusWarmSettled, busIndexHas } from '../bus';
+import {
+  setBusClientForTests,
+  resetBusForTests,
+  isBusWarmSettled,
+  busIndexHas,
+  HttpBusClient,
+} from '../bus';
 import { armBusIndexWatch, disarmBusIndexWatch } from '../busIndexWatch';
 
 function makeClient(snapshots: Set<string>[]) {
@@ -152,5 +158,34 @@ describe('busIndexWatch — warm-in-flight signal', () => {
     await vi.advanceTimersByTimeAsync(1);
     await vi.advanceTimersByTimeAsync(70 * 1000);
     expect(isBusWarmSettled()).toBe(true);
+  });
+
+  it('keeps polling with the real HTTP client, whose invalidate() needs its `this`', async () => {
+    // The stand-in client above has a free-standing invalidate, so calling it
+    // detached from its object worked. HttpBusClient.invalidate reads
+    // this.inflight: called detached it threw on the first changed poll, the
+    // poll never rescheduled, and anything that landed after that first check
+    // (a drill's spectral fit, 15 s after sign-off) went unnoticed until reload.
+    const snapshots = [{ a: 'h1' }, { a: 'h1', b: 'h2' }];
+    let i = 0;
+    const fetchMock = vi.fn(async (url: string) => {
+      if (!url.endsWith('/index')) return new Response(null, { status: 404 });
+      const latest = snapshots[Math.min(i++, snapshots.length - 1)];
+      return new Response(JSON.stringify({ latest, warming: true }), { status: 200 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      setBusClientForTests(new HttpBusClient({ baseUrl: 'http://bus.test', sessionId: 's' }));
+      armBusIndexWatch();
+
+      await vi.advanceTimersByTimeAsync(1); // first poll: a change vs nothing
+      expect(busIndexHas('a')).toBe(true);
+
+      await vi.advanceTimersByTimeAsync(2000); // second poll: 'b' has landed
+      expect(busIndexHas('b')).toBe(true);
+      expect(fetchMock.mock.calls.filter(([u]) => String(u).endsWith('/index'))).toHaveLength(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
