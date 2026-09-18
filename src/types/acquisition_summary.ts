@@ -71,9 +71,17 @@ export interface AcquisitionSummary {
        */
       duration_sec?: number | null;
       /**
-       * Duration left after the applied epoch and vigilance masks are removed.
+       * Duration left after the applied epoch and vigilance masks, and on Inclusions the time outside the include spans (SPEC-060), are removed.
        */
       clean_duration_sec?: number | null;
+      /**
+       * Which marked spans the analysis used (SPEC-060): 'exclude' = the recording minus exclusions; 'include' = the include spans minus exclusions. Null when no op-stack was read.
+       */
+      mask_basis?: "exclude" | "include" | null;
+      /**
+       * Seconds of the recording outside the include spans (SPEC-060); 0 when analysis used exclusions; null when the duration is unknown.
+       */
+      outside_include_sec?: number | null;
       /**
        * Which op-stack slot the cleaning facts came from. Null when the condition has neither.
        */
